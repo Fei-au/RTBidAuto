@@ -1,1 +1,15 @@
 
+Lib
+Scripts
+pyvenv.cfg
+.idea
+media/
+**/__pycache__/
+django.log*
+temp/
+.vscode
+celerybeat*
+rtbid/
+build/
+dist/
+main.spec
