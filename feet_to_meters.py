@@ -69,13 +69,16 @@ class FeetToMeters:
         ttk.Label(mainframe, text="meters").grid(column=3, row=2, sticky=W)
 
         ttk.Button(mainframe, text="Quit", command=root.destroy).grid(column=3, row=4, sticky=E)
-        ttk.Button(mainframe, text="Print hierarchy", command=lambda: print_hierarchy(root)).grid(column=3, row=4, sticky=E)
+        print_btn = ttk.Button(mainframe, text="Print hierarchy", command=lambda: print_hierarchy(root))
+        print_btn.grid(column=3, row=4, sticky=E)
         
+        
+
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
 
         feet_entry.focus()
-        root.bind("<Return>", self.calculate)
+        feet_entry.bind("<Return>", self.calculate)
 
     def calculate(self, *args):
         try:
