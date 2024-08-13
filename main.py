@@ -1,28 +1,10 @@
 from tkinter import *
 from tkinter import ttk
 from tkinter import filedialog
-from playwright.sync_api import sync_playwright
-from playwright.async_api import async_playwright
 from time import sleep
 from feet_to_meters import feet_to_meters_gui, FeetToMeters
 from tools import print_hierarchy
-        
-
-def start_automation():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context()
-        page = context.new_page()
-        page2 = context.new_page()
-        page.goto('https://www.google.com')
-        page2.goto('https://www.youtube.com')
-        # sleep(60)
-        # browser.close()
-
-
-def open_file():
-    filepath = filedialog.askopenfilename()
-    print(f'file name is: {filepath}')
+from bid_gui import BidGui
 
 '''
 Input:
@@ -142,7 +124,6 @@ if __name__ == '__main__':
     # feet_to_meters_gui()
 
     root = Tk()
-    FeetToMeters(root)
-    print_hierarchy(root)
+    BidGui(root)
     root.mainloop()
 
