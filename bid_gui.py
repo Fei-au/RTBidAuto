@@ -77,39 +77,51 @@ class BidGui:
     
     def start_automation(self):
         if self.check_form() or True:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=False)
-                context = browser.new_context()
-                page = context.new_page()
-                # page2 = context.new_page()
-                page.goto("https://hibid.com/")
-                # page2.goto('https://my.hibid.com/')
-                page.get_by_label("Login / New Bidder", exact=True).click()
-                self.bot_acc.set("irishuang77@outlook.com")
-                self.bot_pwd.set("Jinyuan@2027")
-                self.bid_lot_link.set("https://hibid.com/catalog/570377/new--returned--and-overstocked-items")
-                page.locator('[aria-labelledby="email-label"]').fill(self.bot_acc.get())
-                page.locator('[aria-labelledby="password-label"]').fill(self.bot_pwd.get())
-                sleep(10)
-                # page.get_by_text("Log On", exact=True).click()
-                # page.wait_for_load_state('networkidle')
-                login_status = page.locator('[class="welcome-label"]')
-                if login_status.count() == 0:
-                    ttk.Label(self.mainframe, text='Login bot account failed, please restart automation').grid(column=1, row=151, sticky=W)
-                    browser.close()
-                    return
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=False)
+                    context = browser.new_context()
 
-                self.bot_page = page
-                self.bot_bid(lot=2, max_bid_price=350)
+                    # Open hibid auction page and login bot acc
+                    # page = context.new_page()
+                    # page.goto("https://hibid.com/")
+                    # page.get_by_label("Login / New Bidder", exact=True).click()
+
+                    # # Test values
+                    # self.bot_acc.set("irishuang77@outlook.com")
+                    # self.bot_pwd.set("Jinyuan@2027")
+                    # self.bid_lot_link.set("https://hibid.com/catalog/570377/new--returned--and-overstocked-items")
+
+                    # page.locator('[aria-labelledby="email-label"]').fill(self.bot_acc.get())
+                    # page.locator('[aria-labelledby="password-label"]').fill(self.bot_pwd.get())
+                    # sleep(10)
+                    # # page.get_by_text("Log On", exact=True).click()
+                    # # page.wait_for_load_state('networkidle')
+                    # login_status = page.locator('[class="welcome-label"]')
+                    # if login_status.count() == 0:
+                    #     ttk.Label(self.mainframe, text='Login bot account failed, please restart automation').grid(column=1, row=151, sticky=W)
+                    #     browser.close()
+                    #     return
+                    # self.bot_page = page
+
+                    # Test data
+                    self.manager_acc.set('123@outlook.com')
+                    self.manager_pwd.set('123456')
+
+                    myhibid_page = context.new_page()
+                    myhibid_page.goto('https://my.hibid.com/')
+                    
+                    myhibid_page.locator('[id="auctioneer-logon-username"]').fill(self.manager_acc.get())
+                    myhibid_page.locator('[id="Password"]').fill(self.manager_pwd.get())
+                    myhibid_page.get_by_role("button", )
+
+                    sleep(600)
+            except Exception as e:
+                print(e)
+                # self.bot_bid(lot=2, max_bid_price=350)
+        else:
+            ttk.Label(self.mainframe, text='Please input all required fields').grid(column=3, row=101, sticky=W, padx=5)
                 
-                # page.goto(self.bid_lot_link.get())
-                # page.wait_for_load_state('networkidle')
-
-                # search = page.get_by_label("Search", exact=True).nth(0)
-                # search.fill('61')
-                # sleep(0.5)
-                # search.press('Enter')
-                sleep(600)
 
     def bot_bid(self, max_bid_price, lot=61):
         self.bot_page.goto(self.bid_lot_link.get() + f'?q={lot}')
@@ -128,7 +140,7 @@ class BidGui:
             bid_price_list.append(current_bid_amount)
             print(bid_price_list)
         bid_price_list.pop()
-        if len(bid_price_list) == 1:
+        if len(bid_price_list) <= 1:
             bid_modal.get_by_label("Close", exact=True).click()
         else:
             bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
