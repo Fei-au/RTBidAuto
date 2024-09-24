@@ -5,6 +5,8 @@ from time import sleep
 from feet_to_meters import feet_to_meters_gui, FeetToMeters
 from tools import print_hierarchy
 from bid_gui import BidGui
+from dotenv import load_dotenv
+import os
 
 '''
 Input:
@@ -123,6 +125,10 @@ if __name__ == '__main__':
     
     # feet_to_meters_gui()
 
+    ENVFILE = os.getenv('ENV', 'development')
+    env_file = f".env.{ENVFILE}"
+    load_dotenv(dotenv_path=env_file)
+    
     root = Tk()
     BidGui(root)
     root.mainloop()

@@ -13,3 +13,4 @@ rtbid/
 build/
 dist/
 main.spec
+.env*

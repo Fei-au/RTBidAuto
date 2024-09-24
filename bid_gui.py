@@ -4,6 +4,7 @@ from tkinter import filedialog
 from playwright.sync_api import sync_playwright
 import pandas as pd
 from time import sleep
+import os
 
 class BidGui:
 
@@ -83,26 +84,26 @@ class BidGui:
                     context = browser.new_context()
 
                     # Open hibid auction page and login bot acc
-                    # page = context.new_page()
-                    # page.goto("https://hibid.com/")
-                    # page.get_by_label("Login / New Bidder", exact=True).click()
+                    page = context.new_page()
+                    page.goto("https://hibid.com/")
+                    page.get_by_label("Login / New Bidder", exact=True).click()
 
-                    # # Test values
-                    # self.bot_acc.set("irishuang77@outlook.com")
-                    # self.bot_pwd.set("Jinyuan@2027")
-                    # self.bid_lot_link.set("https://hibid.com/catalog/570377/new--returned--and-overstocked-items")
+                    # Test values
+                    self.bot_acc.set(os.getenv('BOT_ACC'))
+                    self.bot_pwd.set(os.getenv)
+                    self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
 
-                    # page.locator('[aria-labelledby="email-label"]').fill(self.bot_acc.get())
-                    # page.locator('[aria-labelledby="password-label"]').fill(self.bot_pwd.get())
-                    # sleep(10)
-                    # # page.get_by_text("Log On", exact=True).click()
-                    # # page.wait_for_load_state('networkidle')
-                    # login_status = page.locator('[class="welcome-label"]')
-                    # if login_status.count() == 0:
-                    #     ttk.Label(self.mainframe, text='Login bot account failed, please restart automation').grid(column=1, row=151, sticky=W)
-                    #     browser.close()
-                    #     return
-                    # self.bot_page = page
+                    page.locator('[aria-labelledby="email-label"]').fill(self.bot_acc.get())
+                    page.locator('[aria-labelledby="password-label"]').fill(self.bot_pwd.get())
+                    sleep(10)
+                    # page.get_by_text("Log On", exact=True).click()
+                    # page.wait_for_load_state('networkidle')
+                    login_status = page.locator('[class="welcome-label"]')
+                    if login_status.count() == 0:
+                        ttk.Label(self.mainframe, text='Login bot account failed, please restart automation').grid(column=1, row=151, sticky=W)
+                        browser.close()
+                        return
+                    self.bot_page = page
 
                     # Test data
                     self.manager_acc.set('123@outlook.com')
@@ -149,9 +150,6 @@ class BidGui:
         sleep(600)
 
         
-
-
-
     def bot_register_auction(self):
         modals = self.bot_page.locator('modal-container')
         if modals.count() == 1:
