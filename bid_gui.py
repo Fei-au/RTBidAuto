@@ -4,8 +4,11 @@ from tkinter import filedialog
 from playwright.async_api import async_playwright
 import pandas as pd
 from time import sleep
+import threading
 import os
 import asyncio
+from exceptions import NavigationError
+from automation import Automation
 
 class BidGui:
 
@@ -13,6 +16,7 @@ class BidGui:
         self.form_msg = None
         self.registered = False
         self.bot_page = None
+        self.automation = Automation()
 
         root.title("Hibid Automation")
 
@@ -56,25 +60,35 @@ class BidGui:
         bot_pwd_entry.grid(column=2, row=6, sticky=(W, E))
 
         ttk.Button(mainframe, text='Open Auction File', command=self.open_file).grid(ipadx=5, column=2, row=101, sticky=W)
-        ttk.Button(mainframe, text='Open browser', command=self.open_browser).grid(ipadx=5, column=1, row=102, sticky=W)
+        ttk.Button(mainframe, text='Login accounts', command=self.login_accounts).grid(ipadx=5, column=1, row=102, sticky=W)
         ttk.Button(mainframe, text='Start Automation', command=self.start_automation).grid(ipadx=5, column=2, row=102, sticky=W)
 
         ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=E)
         
-
+        # Add padding to each widget
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
-
+        # Focus on root window
         self.mainframe = mainframe
         root.focus()
         
-        self.loop = asyncio.get_event_loop()
-        self.root = root
-        self.root.after(100, self.process_events)
         
-    def process_events(self):
-        self.loop.run_until_complete(asyncio.sleep(0))
-        self.root.after(100, self.process_events)
+        # Test values
+        self.bot_acc.set(os.getenv('BOT_ACC'))
+        self.bot_pwd.set(os.getenv('BOT_PWD'))
+        self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
+        
+        self.manager_acc.set(os.getenv('MNG_ACC'))
+        self.manager_pwd.set(os.getenv('MNG_PWD'))
+        self.management_lot_link.set(os.getenv('MNG_LINK'))
+        # Start asyncio loop
+    #     self.loop = asyncio.get_event_loop()
+    #     self.root = root
+    #     self.root.after(100, self.process_events)
+        
+    # def process_events(self):
+    #     self.loop.call_soon_threadsafe(self.loop.stop)
+    #     self.root.after(100, self.process_events)
     
     def open_file(self):
         filepath = filedialog.askopenfilename()
@@ -86,101 +100,32 @@ class BidGui:
         ttk.Label(self.mainframe, text='File import success!').grid(column=3, row=101, sticky=W, padx=5)
         return
     
-    def open_browser(self):
-        asyncio.run(self.open_browser_async())
-        
+    def login_accounts(self):
+        if self.check_form():
+            asyncio.run(self.login_accounts_async())
+            
     def start_automation(self):
-        asyncio.run(self.start_automation_async())
+        asyncio.run(self.automation.start_automation_async(self.bot_page, self.mng_page))
         
     
-    async def open_browser_async(self):
+    async def login_accounts_async(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(headless=False)
         self.context = await self.browser.new_context()
-        
-        self.bot_page = await self.context.new_page()
-        await self.bot_page.goto("https://hibid.com/")
-        await self.bot_page.get_by_label("Login / New Bidder", exact=True).click()
+        try:
+            # self.bot_page = await self.context.new_page()
+            # await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
+            self.mng_page = await self.context.new_page()
+            await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
+        except NavigationError as e:
+            ttk.Label(self.mainframe, text=e).grid(column=1, row=151, sticky=W)
+            # await self.browser.close()
+        except Exception as e:
+            ttk.Label(self.mainframe, text=e).grid(column=1, row=151, sticky=W)
+            await self.browser.close()
+            
     
-    async def start_automation_async(self):
-        if self.check_form() or True:
-            try:
-                # browser = await p.chromium.launch(headless=False)
-                # context = await browser.new_context()
 
-                # # Open hibid auction page and login bot acc
-                # page = await context.new_page()
-                # await page.goto("https://hibid.com/")
-                # await page.get_by_label("Login / New Bidder", exact=True).click()
-
-                # # Test values
-                # self.bot_acc.set(os.getenv('BOT_ACC'))
-                # self.bot_pwd.set(os.getenv)
-                # self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
-
-                # await self.bot_page.locator('[aria-labelledby="email-label"]').fill(self.bot_acc.get())
-                # await self.bot_page.locator('[aria-labelledby="password-label"]').fill(self.bot_pwd.get())
-                # await asyncio.sleep(100)
-                # page.get_by_text("Log On", exact=True).click()
-                await self.bot_page.wait_for_load_state('networkidle')
-                login_status = self.bot_page.locator('[class="welcome-label"]')
-                if await login_status.count() == 0:
-                    ttk.Label(self.mainframe, text='Login bot account failed, please restart automation').grid(column=1, row=151, sticky=W)
-                    await self.browser.close()
-                    return
-
-                # Test data
-                self.manager_acc.set('123@outlook.com')
-                self.manager_pwd.set('123456')
-
-                self.myhibid_page = await self.context.new_page()
-                await self.myhibid_page.goto('https://my.hibid.com/')
-                await self.myhibid_page.locator('[id="auctioneer-logon-username"]').fill(self.manager_acc.get())
-                await self.myhibid_page.locator('[id="Password"]').fill(self.manager_pwd.get())
-                await self.myhibid_page.get_by_role("button")
-                await asyncio.sleep(600)
-            except Exception as e:
-                print(e)
-                # self.bot_bid(lot=2, max_bid_price=350)
-        else:
-            ttk.Label(self.mainframe, text='Please input all required fields').grid(column=3, row=101, sticky=W, padx=5)
-
-    def bot_bid(self, max_bid_price, lot=61):
-        self.bot_page.goto(self.bid_lot_link.get() + f'?q={lot}')
-        lot = self.bot_page.locator(f'app-lot-tile:has-text("Lot {lot} | ")')
-        
-        lot.get_by_label('Bid', exact=True).click()
-        self.bot_register_auction()
-
-        bid_modal = self.bot_page.locator('app-bid-modal')
-        bid_price_list = []
-        current_bid_amount = 0
-        bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
-        while current_bid_amount < max_bid_price:
-            bid_button.click()
-            current_bid_amount = float(bid_modal.get_by_label("Bid amount", exact=True).input_value())
-            bid_price_list.append(current_bid_amount)
-            print(bid_price_list)
-        bid_price_list.pop()
-        if len(bid_price_list) <= 1:
-            bid_modal.get_by_label("Close", exact=True).click()
-        else:
-            bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
-
-        # self.bot_page.get_by_label("Click to confirm bid", exact=True)
-        sleep(600)
-
-        
-    def bot_register_auction(self):
-        modals = self.bot_page.locator('modal-container')
-        if modals.count() == 1:
-            self.registered = True
-        if not self.registered:
-            self.bot_page.get_by_label("Agree to the terms and conditions").check()
-            self.bot_page.get_by_label("Click to register for the auction").click()
-            welcome_banner = self.bot_page.locator('modal-container:has-text("Welcome to")')
-            welcome_banner.get_by_label("Close", exact=True).click()
-            self.registered = True
 
     def clear_subscribe_modal(self):
         print('nothing')
