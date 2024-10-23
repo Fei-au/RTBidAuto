@@ -2,8 +2,6 @@ from tkinter import *
 from tkinter import ttk
 from tkinter import filedialog
 from playwright.async_api import async_playwright
-import pandas as pd
-from time import sleep
 import threading
 import os
 import asyncio
@@ -13,8 +11,8 @@ from automation import Automation
 class BidGui:
 
     def __init__(self, root) -> None:
-        self.form_msg = None
         self.registered = False
+        self.message = None
         self.bot_page = None
         self.automation = Automation()
 
@@ -81,7 +79,11 @@ class BidGui:
         self.manager_acc.set(os.getenv('MNG_ACC'))
         self.manager_pwd.set(os.getenv('MNG_PWD'))
         self.management_lot_link.set(os.getenv('MNG_LINK'))
+        
         # Start asyncio loop
+        self.loop = asyncio.new_event_loop()
+        self.loop_thread = threading.Thread(target=self.start_event_loop, daemon=True)
+        self.loop_thread.start()
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
@@ -90,24 +92,41 @@ class BidGui:
     #     self.loop.call_soon_threadsafe(self.loop.stop)
     #     self.root.after(100, self.process_events)
     
-    def open_file(self):
-        filepath = filedialog.askopenfilename()
-        print(f'file name is: {filepath}')
-        with open(filepath, 'r') as f:
-            df = pd.read_csv(f)
-            self.lot_dict = df.set_index('lot')['msrp_price']
-
-        ttk.Label(self.mainframe, text='File import success!').grid(column=3, row=101, sticky=W, padx=5)
-        return
+    def start_event_loop(self):
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
     
+    # Open file dialog to import auction export file, must have msrp_price and lot columns
+    def open_file(self):
+        try:
+            filepath = filedialog.askopenfilename()
+            self.automation.file_to_lot_dict(filepath)
+            self.show_message('File import success!')
+        except Exception as e:
+            self.show_message(e)
+    
+    # Login manager and bot accounts
     def login_accounts(self):
         if self.check_form():
-            asyncio.run(self.login_accounts_async())
+            asyncio.run_coroutine_threadsafe(self.login_accounts_async(), self.loop)
             
     def start_automation(self):
-        asyncio.run(self.automation.start_automation_async(self.bot_page, self.mng_page))
-        
+        try:
+            if hasattr(self, 'mng_page') and self.mng_page is not None:
+                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page), self.loop)
+            else:
+                self.show_message('Please login accounts first')
+        except Exception as e:
+            self.show_message(e)
+            
+    def show_message(self, msg):
+        self.message = ttk.Label(self.mainframe, text=msg).grid(column=1, row=151, sticky=W)
     
+    def hide_message(self):
+        if(self.message):
+            self.message.grid_remove()
+        
+        
     async def login_accounts_async(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(headless=False)
@@ -117,29 +136,21 @@ class BidGui:
             # await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
             self.mng_page = await self.context.new_page()
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
+            self.show_message('Login success! Now you can start automation.')
         except NavigationError as e:
-            ttk.Label(self.mainframe, text=e).grid(column=1, row=151, sticky=W)
+            self.show_message(e)
             # await self.browser.close()
         except Exception as e:
-            ttk.Label(self.mainframe, text=e).grid(column=1, row=151, sticky=W)
+            self.show_message(e)
             await self.browser.close()
-            
-    
-
-
-    def clear_subscribe_modal(self):
-        print('nothing')
-
 
     def check_form(self):
-        result = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' or self.bot_acc.get() == '' or self.bot_pwd.get() == '' or self.bid_lot_link.get() == '' or self.management_lot_link.get() == '' else True
-        if not result:
-            if self.form_msg is None:
-                self.form_msg = ttk.Label(self.mainframe, text='Please input all required fileds')
-            self.form_msg.grid(row=151, column=1, sticky=W)
+        check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' or self.bot_acc.get() == '' or self.bot_pwd.get() == '' or self.bid_lot_link.get() == '' or self.management_lot_link.get() == '' else True
+        if not check_success:
+            self.show_message("Please input all required fileds")
         else:
-            self.form_msg is None or self.form_msg.grid_remove()
-        return result
+            self.hide_message()
+        return check_success
             
         
 
