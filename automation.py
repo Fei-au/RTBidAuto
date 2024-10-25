@@ -179,6 +179,7 @@ class Automation:
                                 self.bid_to_bot_max += (final_bid_price - bid_info['high_bid'])
                 else:
                     print('Loss msrp price indication')
+                await asyncio.sleep(5)
             self.show_log(f'Bid customer win totally: {self.bid_cust_win_count}')
             self.show_log(f'Bid customer win price total: {self.bid_to_cust_max}')
             self.show_log(f'Bid bot win totally: {self.bid_bot_win_count}')
@@ -210,7 +211,7 @@ class Automation:
         bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
         # Bid to the target price
         while bid_price_list[-1] <= target_price:
-            # await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
             await bid_button.click()
             bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
             current_bid_amount = float(bid_amount_text.replace(',', ''))

@@ -74,6 +74,13 @@ class BidGui:
         self.scrollbar.grid(column=3, row=151, sticky=(N, S))
         self.log_text["yscrollcommand"] = self.scrollbar.set
         
+        
+        # Log area setup
+        self.message = Text(mainframe, wrap="word", width=30, height=15)
+        self.message.grid(column=1, row=151, sticky=(W, E))
+        self.message.config(state="disabled")  # Start as read-only
+
+        
         # Add padding to each widget
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
@@ -133,11 +140,23 @@ class BidGui:
             self.show_message(e)
             
     def show_message(self, msg):
-        self.message = ttk.Label(self.mainframe, text=msg).grid(column=1, row=152, sticky=W)
+        # Enable text widget to insert new msg
+        self.message.config(state="normal")
         
-    def hide_message(self):
-        if(self.message):
-            self.message.grid_remove()
+        # Insert log at the end with a new line
+        self.message.insert("end", msg + "\n")
+        
+        # Scroll to the end
+        self.message.see("end")
+        
+        # Disable text widget to prevent editing
+        self.message.config(state="disabled")
+        
+    # def hide_message(self):
+    #     if(self.message):
+    #         # Enable text widget to insert new msg
+    #         self.message.config(state="normal")
+    #         self.message.("end", msg + "\n")
     
     def show_log(self, log):
         # Enable text widget to insert new log
@@ -177,8 +196,8 @@ class BidGui:
         check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' or self.bot_acc.get() == '' or self.bot_pwd.get() == '' or self.bid_lot_link.get() == '' or self.management_lot_link.get() == '' else True
         if not check_success:
             self.show_message("Please input all required fileds")
-        else:
-            self.hide_message()
+        # else:
+        #     self.hide_message()
         return check_success
             
         
