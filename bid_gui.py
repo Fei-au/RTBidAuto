@@ -13,8 +13,9 @@ class BidGui:
     def __init__(self, root) -> None:
         self.registered = False
         self.message = None
+        self.log = None
         self.bot_page = None
-        self.automation = Automation()
+        self.automation = Automation(self.show_log)
 
         root.title("Hibid Automation")
 
@@ -62,6 +63,16 @@ class BidGui:
         ttk.Button(mainframe, text='Start Automation', command=self.start_automation).grid(ipadx=5, column=2, row=102, sticky=W)
 
         ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=E)
+        
+        # Log area setup
+        self.log_text = Text(mainframe, wrap="word", width=50, height=15)
+        self.log_text.grid(column=2, row=151, sticky=(W, E))
+        self.log_text.config(state="disabled")  # Start as read-only
+        
+        # Scrollbar for the log area
+        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
+        self.scrollbar.grid(column=3, row=151, sticky=(N, S))
+        self.log_text["yscrollcommand"] = self.scrollbar.set
         
         # Add padding to each widget
         for child in mainframe.winfo_children():
@@ -112,29 +123,47 @@ class BidGui:
             
     def start_automation(self):
         try:
-            if hasattr(self, 'mng_page') and self.mng_page is not None:
+            # if hasattr(self, 'mng_page') and self.mng_page is not None and hasattr(self, 'bot_page') and self.bot_page is not None:
+                
                 asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page), self.loop)
-            else:
-                self.show_message('Please login accounts first')
+                # asyncio.run_coroutine_threadsafe(self.automation.bot_bid(self.bot_page, "2", 425), self.loop)
+            # else:
+            #     self.show_message('Please login accounts first')
         except Exception as e:
             self.show_message(e)
             
     def show_message(self, msg):
-        self.message = ttk.Label(self.mainframe, text=msg).grid(column=1, row=151, sticky=W)
-    
+        self.message = ttk.Label(self.mainframe, text=msg).grid(column=1, row=152, sticky=W)
+        
     def hide_message(self):
         if(self.message):
             self.message.grid_remove()
+    
+    def show_log(self, log):
+        # Enable text widget to insert new log
+        self.log_text.config(state="normal")
+        
+        # Insert log at the end with a new line
+        self.log_text.insert("end", log + "\n")
+        
+        # Scroll to the end
+        self.log_text.see("end")
+        
+        # Disable text widget to prevent editing
+        self.log_text.config(state="disabled")
+    
         
         
     async def login_accounts_async(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)
-        self.context = await self.browser.new_context()
+        bot_data_dir = "E:/code/RTBidAuto/playwright-bot-data"
+        manager_data_dir = "E:/code/RTBidAuto/playwright-mng-data"
         try:
-            # self.bot_page = await self.context.new_page()
-            # await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
-            self.mng_page = await self.context.new_page()
+            self.bot_browser = await self.playwright.chromium.launch_persistent_context(bot_data_dir, headless=False)
+            self.bot_page = self.bot_browser.pages[0]
+            await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
+            self.mng_browser = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
+            self.mng_page = self.mng_browser.pages[0]
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
             self.show_message('Login success! Now you can start automation.')
         except NavigationError as e:
