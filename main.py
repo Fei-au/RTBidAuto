@@ -1,12 +1,11 @@
 from tkinter import *
 from tkinter import ttk
-from tkinter import filedialog
-from time import sleep
-from feet_to_meters import feet_to_meters_gui, FeetToMeters
-from tools import print_hierarchy
 from bid_gui import BidGui
 from dotenv import load_dotenv
 import os
+from pathlib import Path
+import json
+
 
 '''
 Input:
@@ -85,50 +84,63 @@ Bid to highest
 
 
 
-def tk_gui():
+# def tk_gui():
 
-    root = Tk(screenName='Hibid Automation')
+#     root = Tk(screenName='Hibid Automation')
     
-    # app.title("Hibid Automation")
-    # root
-    root_frm = ttk.Frame(root, padding=10)
-    root_frm.grid()
+#     # app.title("Hibid Automation")
+#     # root
+#     root_frm = ttk.Frame(root, padding=10)
+#     root_frm.grid()
 
-    print_hierarchy(root)
+#     print_hierarchy(root)
 
-    tit_frm = ttk.Frame(root_frm).grid(row=0, column=0)
+#     tit_frm = ttk.Frame(root_frm).grid(row=0, column=0)
 
-    ttk.Label(root_frm, text='Automation').grid(column=0, row=0)
+#     ttk.Label(root_frm, text='Automation').grid(column=0, row=0)
 
-    # ttk.Label(l, text='Auto2')
+#     # ttk.Label(l, text='Auto2')
     
 
-    btn = ttk.Button(root_frm, text='Quit', command=root.destroy)
-    btn.grid(column=1, row=0, padx=50, ipadx=20, ipady=20)
-    btn.configure(text='goodbye')
-    # Button(root_frm, text='Test Button', fg='red', bg='blue').grid(row=1, column=0)
-    print(btn['text'])
+#     btn = ttk.Button(root_frm, text='Quit', command=root.destroy)
+#     btn.grid(column=1, row=0, padx=50, ipadx=20, ipady=20)
+#     btn.configure(text='goodbye')
+#     # Button(root_frm, text='Test Button', fg='red', bg='blue').grid(row=1, column=0)
+#     print(btn['text'])
 
-    # btn_open = Button(root_frm, text="Open File", command=open_file)
-    # btn_open.pack(pady=10)
+#     # btn_open = Button(root_frm, text="Open File", command=open_file)
+#     # btn_open.pack(pady=10)
 
-    # btn_start = Button(root_frm, text="Start Automation", command=start_automation)
-    # btn_start.pack(pady=10)
+#     # btn_start = Button(root_frm, text="Start Automation", command=start_automation)
+#     # btn_start.pack(pady=10)
 
-    root.mainloop()
+#     root.mainloop()
+    
 
 
+# app_data_path = Path(os.getenv('LOCALAPPDATA')) / "AutoBid"
+# app_data_path.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
+# credentials_file = app_data_path / "credentials.json"
+    
+# def load_credentials():
+#     if credentials_file.exists():
+#         with open(credentials_file, 'r') as file:
+#             return json.load(file)
+#     return None
+
+# def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd):
+#     with open(credentials_file, 'w') as file:
+#         json.dump({"BOT_ACC": bot_acc, "BOT_PASS": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd}, file)
+
+# def get_local_dir():
+#     return app_data_path
 
 if __name__ == '__main__':
     # tk_gui()
-
     
-    # feet_to_meters_gui()
-
     ENVFILE = os.getenv('ENV', 'development')
     env_file = f".env.{ENVFILE}"
     load_dotenv(dotenv_path=env_file)
-    
     root = Tk()
     BidGui(root)
     root.mainloop()

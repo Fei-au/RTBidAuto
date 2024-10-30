@@ -1,7 +1,11 @@
 import asyncio
 from tools import get_upper_level_url
 import pandas as pd
+from datetime import datetime
+import requests
 
+
+log_url = "http://127.0.0.1:8000/items/logs"  # Change the port if your server runs on a different one
 
 class Automation:
     
@@ -147,8 +151,9 @@ class Automation:
         self.show_log(f'Get valid lot info totally: {valid_lot_count}')
         return
             
-    async def start_automation_async(self, bot_page, mng_page):
+    async def start_automation_async(self, bot_page, mng_page, bot_acc):
         await self.get_bids_info(mng_page)
+        item_log = []
         # return
         try:
             for lot in self.lot_dict:
@@ -157,29 +162,45 @@ class Automation:
                     continue
                 # if lot == "2":
                 # price is less than 100
-                if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100: 
+                if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
                     if bid_info['high_bid'] < bid_info['max_bid_price']:
-                        final_bid_price = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
+                        previous, final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
                         if final_bid_price != 0:
                             self.bid_cust_win_count += 1
-                            self.bid_to_cust_max += (final_bid_price - bid_info['high_bid'])
+                            self.bid_to_cust_max += (final_bid_price - previous)
                 elif bid_info['msrp_price'] > 100:
                     # current bid price is less than max bid price or 20% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
                     if bid_info['high_bid'] < target_price:
-                        final_bid_price = await self.bot_bid(bot_page, lot, target_price)
+                        previous, final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
                         if final_bid_price != 0:
                             if(target_price == bid_info['max_bid_price']):
                                 self.bid_cust_win_count += 1
-                                self.bid_to_cust_max += (final_bid_price - bid_info['high_bid'])
+                                self.bid_to_cust_max += (final_bid_price - previous)
                             else:
                                 self.bid_bot_win_count += 1
-                                self.bid_to_bot_max += (final_bid_price - bid_info['high_bid'])
+                                self.bid_to_bot_max += (final_bid_price - previous)
                 else:
                     print('Loss msrp price indication')
-                await asyncio.sleep(5)
+                item_log.append({
+                    "automation_link": self.bid_link,
+                    "lot": lot,
+                    "client": bot_acc,
+                    "target_price": final_bid_price,
+                    "previous_price": previous,
+                    "status": status,
+                    "timestamp": datetime.now().isoformat()
+                })
+                if(len(item_log) == 20):
+                    response = requests.post(log_url, json=item_log)
+                    self.show_log(f'Log: {response}')
+                    item_log.clear()
+                # await asyncio.sleep(5)
+            if(len(item_log) != 0):
+                response = requests.post(log_url, json=item_log)
+                self.show_log(f'Log: {response}')
             self.show_log(f'Bid customer win totally: {self.bid_cust_win_count}')
             self.show_log(f'Bid customer win price total: {self.bid_to_cust_max}')
             self.show_log(f'Bid bot win totally: {self.bid_bot_win_count}')
@@ -190,47 +211,50 @@ class Automation:
     
     async def bot_bid(self, page, lot, target_price):
         print(self.bid_link + f'?q={lot}')
-        
-        await page.goto(self.bid_link + f'?q={lot}')
-        await self.clear_subscribe_modal(page)
-        
-        # Start bid
-        lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")')
-        await lot_title.get_by_label('Bid', exact=True).click()
-        
-        # Get rid of register modal for first time bid on this auction
-        if not self.registered:
-            self.registered = await self.bot_register_auction(page)
+        try:
+            await page.goto(self.bid_link + f'?q={lot}')
+            await self.clear_subscribe_modal(page)
+            
+            # Start bid
+            lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")')
+            await lot_title.get_by_label('Bid', exact=True).click()
+            
+            # Get rid of register modal for first time bid on this auction
+            if not self.registered:
+                self.registered = await self.bot_register_auction(page)
 
-        bid_modal = page.locator('app-bid-modal')
-        # Initial bid price
-        bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
-        current_bid_amount = float(bid_amount_text.replace(',', ''))
-        bid_price_list = [current_bid_amount]
-        
-        bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
-        # Bid to the target price
-        while bid_price_list[-1] <= target_price:
-            await asyncio.sleep(0.2)
-            await bid_button.click()
+            bid_modal = page.locator('app-bid-modal')
+            # Initial bid price
             bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
             current_bid_amount = float(bid_amount_text.replace(',', ''))
-            bid_price_list.append(current_bid_amount)
-            if current_bid_amount == bid_price_list[-2]:
-                break
-        bid_price_list.pop()
-        
-        if len(bid_price_list) == 0:
-            await bid_modal.get_by_label("Close", exact=True).click()
-        else:
-            await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
-            self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
-
-            await bid_modal.get_by_label("Close", exact=True).click()
-            return bid_price_list[-1]
-        return 0
-        # page.get_by_label("Click to confirm bid", exact=True)
-        # await asyncio.sleep(30)
+            previous_price = current_bid_amount
+            bid_price_list = [current_bid_amount]
+            
+            bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
+            # Bid to the target price
+            while bid_price_list[-1] <= target_price:
+                # await asyncio.sleep(0.2)
+                await bid_button.click()
+                bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
+                current_bid_amount = float(bid_amount_text.replace(',', ''))
+                bid_price_list.append(current_bid_amount)
+                if current_bid_amount == bid_price_list[-2]:
+                    break
+            bid_price_list.pop()
+            
+            if len(bid_price_list) == 0:
+                await bid_modal.get_by_label("Close", exact=True).click()
+            else:
+                await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
+                self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
+                # page.get_by_label("Click to confirm bid", exact=True)
+                await bid_modal.get_by_label("Close", exact=True).click()
+                return previous_price, bid_price_list[-1], 'success'
+            return previous_price, bid_price_list[-1], 'skip'
+        except Exception as e:
+            pass
+            # send error to server
+            # return previous_price, previous_price, 'failed'
     
     
     async def bot_register_auction(self, page):
