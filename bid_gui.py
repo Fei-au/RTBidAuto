@@ -3,10 +3,11 @@ from tkinter import ttk
 from tkinter import filedialog
 from playwright.async_api import async_playwright
 import threading
-import os
 import asyncio
 from exceptions import NavigationError
 from automation import Automation
+from tools import load_credentials, save_credentials, get_local_dir
+import os
 
 class BidGui:
 
@@ -89,14 +90,26 @@ class BidGui:
         root.focus()
         
         
-        # Test values
-        self.bot_acc.set(os.getenv('BOT_ACC'))
-        self.bot_pwd.set(os.getenv('BOT_PWD'))
+        # # Test values
+        # self.bot_acc.set(os.getenv('BOT_ACC'))
+        # self.bot_pwd.set(os.getenv('BOT_PWD'))
         self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
         
-        self.manager_acc.set(os.getenv('MNG_ACC'))
-        self.manager_pwd.set(os.getenv('MNG_PWD'))
+        # self.manager_acc.set(os.getenv('MNG_ACC'))
+        # self.manager_pwd.set(os.getenv('MNG_PWD'))
         self.management_lot_link.set(os.getenv('MNG_LINK'))
+        
+        # Load credential from local json file
+        credentials = load_credentials()
+        
+        bot_acc = credentials.get("BOT_ACC")
+        bot_pwd = credentials.get("BOT_PWD")
+        manager_acc = credentials.get("MNG_ACC")
+        manager_pwd = credentials.get("MNG_PWD")
+        self.bot_acc.set(bot_acc)
+        self.bot_pwd.set(bot_pwd)
+        self.manager_acc.set(manager_acc)
+        self.manager_pwd.set(manager_pwd)
         
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
@@ -132,7 +145,7 @@ class BidGui:
         try:
             # if hasattr(self, 'mng_page') and self.mng_page is not None and hasattr(self, 'bot_page') and self.bot_page is not None:
                 
-                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page), self.loop)
+                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page, self.bot_acc.get()), self.loop)
                 # asyncio.run_coroutine_threadsafe(self.automation.bot_bid(self.bot_page, "2", 425), self.loop)
             # else:
             #     self.show_message('Please login accounts first')
@@ -175,15 +188,23 @@ class BidGui:
         
     async def login_accounts_async(self):
         self.playwright = await async_playwright().start()
-        bot_data_dir = "E:/code/RTBidAuto/playwright-bot-data"
-        manager_data_dir = "E:/code/RTBidAuto/playwright-mng-data"
+        bot_data_dir = get_local_dir() / "playwright-bot-data"
+        manager_data_dir = get_local_dir() / "playwright-mng-data"
+        bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
+        manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
+
         try:
             self.bot_browser = await self.playwright.chromium.launch_persistent_context(bot_data_dir, headless=False)
             self.bot_page = self.bot_browser.pages[0]
+            bot_acc = self.bot_acc.get()
+            bot_pwd = self.bot_pwd.get()
+            manager_acc = self.manager_acc.get()
+            manager_pwd = self.manager_pwd.get()
             await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
             self.mng_browser = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
             self.mng_page = self.mng_browser.pages[0]
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
+            save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd)
             self.show_message('Login success! Now you can start automation.')
         except NavigationError as e:
             self.show_message(e)
