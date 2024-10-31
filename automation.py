@@ -159,13 +159,13 @@ class Automation:
         unique_id = str(uuid.uuid4())
         item_log = []
         # return
-        try:
-            for lot in self.lot_dict:
-                bid_info = self.lot_dict[lot]
-                if bid_info.get("max_bid_price") == None:
-                    continue
-                # if lot == "2":
-                # price is less than 100
+        for lot in self.lot_dict:
+            bid_info = self.lot_dict[lot]
+            if bid_info.get("max_bid_price") == None:
+                continue
+            # if lot == "2":
+            # price is less than 100
+            try:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
                     if bid_info['high_bid'] < bid_info['max_bid_price']:
@@ -193,6 +193,11 @@ class Automation:
                 else:
                     self.show_log(f'No msrp price indication for lot: {lot}')
                     continue
+                await asyncio.sleep(2)
+            except Exception as e:
+                error_details = traceback.format_exc()
+                self.show_log(error_details)
+            try:
                 item_log.append({
                     # "automation_link": self.bid_link,
                     "lot": lot,
@@ -204,23 +209,28 @@ class Automation:
                 })
                 if(len(item_log) == 20):
                     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/items', 
-                                             json={
-                                                 "transaction_id": unique_id,
-                                                 "items": item_log, 
-                                                 "automation_link": self.bid_link, 
-                                                 "client": bot_acc
-                                                 })
+                                                json={
+                                                    "transaction_id": unique_id,
+                                                    "items": item_log, 
+                                                    "automation_link": self.bid_link, 
+                                                    "client": bot_acc
+                                                    })
                     self.show_log(f'Log: {response.text}')
                     item_log.clear()
-                await asyncio.sleep(2)
+                    
+            except Exception as e:
+                error_details = traceback.format_exc()
+                self.show_log(error_details)
+            
+        try:
             if(len(item_log) != 0):
                     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/items', 
-                                             json={
-                                                 "transaction_id": unique_id,
-                                                 "items": item_log, 
-                                                 "automation_link": self.bid_link, 
-                                                 "client": bot_acc
-                                                 })
+                                                json={
+                                                    "transaction_id": unique_id,
+                                                    "items": item_log, 
+                                                    "automation_link": self.bid_link, 
+                                                    "client": bot_acc
+                                                    })
                     self.show_log(f'Log: {response.text}')
             response = requests.post(f'{os.getenv("LOG_BACK")}/logs/transaction', 
                             json={
@@ -237,14 +247,14 @@ class Automation:
                                     "bot_win_increased_price": self.bid_to_bot_max
                                 })
             self.show_log(f'Log: {response.text}')
-            self.show_log(f'Bid customer win totally: {self.bid_cust_win_count}')
-            self.show_log(f'Bid customer win price total: {self.bid_to_cust_max}')
-            self.show_log(f'Bid bot win totally: {self.bid_bot_win_count}')
-            self.show_log(f'Bid bot win totally: {self.bid_to_bot_max}')
         except Exception as e:
-            error_details = traceback.format_exc()
-            self.show_log(error_details)
-        
+                error_details = traceback.format_exc()
+                self.show_log(error_details)
+            
+        self.show_log(f'Bid customer win totally: {self.bid_cust_win_count}')
+        self.show_log(f'Bid customer win price total: {self.bid_to_cust_max}')
+        self.show_log(f'Bid bot win totally: {self.bid_bot_win_count}')
+        self.show_log(f'Bid bot win totally: {self.bid_to_bot_max}')
     
     async def bot_bid(self, page, lot, target_price):
         print(self.bid_link + f'?q={lot}')
