@@ -8,6 +8,7 @@ from exceptions import NavigationError
 from automation import Automation
 from tools import load_credentials, save_credentials, get_local_dir
 import os
+import traceback
 
 class BidGui:
 
@@ -93,23 +94,23 @@ class BidGui:
         # # Test values
         # self.bot_acc.set(os.getenv('BOT_ACC'))
         # self.bot_pwd.set(os.getenv('BOT_PWD'))
-        self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
+        # self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
         
         # self.manager_acc.set(os.getenv('MNG_ACC'))
         # self.manager_pwd.set(os.getenv('MNG_PWD'))
-        self.management_lot_link.set(os.getenv('MNG_LINK'))
+        # self.management_lot_link.set(os.getenv('MNG_LINK'))
         
         # Load credential from local json file
         credentials = load_credentials()
-        
-        bot_acc = credentials.get("BOT_ACC")
-        bot_pwd = credentials.get("BOT_PWD")
-        manager_acc = credentials.get("MNG_ACC")
-        manager_pwd = credentials.get("MNG_PWD")
-        self.bot_acc.set(bot_acc)
-        self.bot_pwd.set(bot_pwd)
-        self.manager_acc.set(manager_acc)
-        self.manager_pwd.set(manager_pwd)
+        if credentials:
+            bot_acc = credentials.get("BOT_ACC")
+            bot_pwd = credentials.get("BOT_PWD")
+            manager_acc = credentials.get("MNG_ACC")
+            manager_pwd = credentials.get("MNG_PWD")
+            self.bot_acc.set(bot_acc)
+            self.bot_pwd.set(bot_pwd)
+            self.manager_acc.set(manager_acc)
+            self.manager_pwd.set(manager_pwd)
         
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
@@ -131,10 +132,12 @@ class BidGui:
     def open_file(self):
         try:
             filepath = filedialog.askopenfilename()
-            self.automation.file_to_lot_dict(filepath)
-            self.show_message('File import success!')
+            if(filepath):
+                self.automation.file_to_lot_dict(filepath)
+                self.show_message('File import success!')
         except Exception as e:
-            self.show_message(e)
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
     
     # Login manager and bot accounts
     def login_accounts(self):
@@ -145,12 +148,13 @@ class BidGui:
         try:
             # if hasattr(self, 'mng_page') and self.mng_page is not None and hasattr(self, 'bot_page') and self.bot_page is not None:
                 
-                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page, self.bot_acc.get()), self.loop)
+                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page, self.bot_acc.get(), self.manager_acc.get()), self.loop)
                 # asyncio.run_coroutine_threadsafe(self.automation.bot_bid(self.bot_page, "2", 425), self.loop)
             # else:
             #     self.show_message('Please login accounts first')
         except Exception as e:
-            self.show_message(e)
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
             
     def show_message(self, msg):
         # Enable text widget to insert new msg

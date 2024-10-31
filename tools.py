@@ -38,7 +38,7 @@ def load_credentials():
 
 def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd):
     with open(credentials_file, 'w') as file:
-        json.dump({"BOT_ACC": bot_acc, "BOT_PASS": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd}, file)
+        json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd}, file)
 
 def get_local_dir():
     return app_data_path

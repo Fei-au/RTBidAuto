@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 import json
+from datetime import datetime
+import requests
+import sys
 
 
 '''
@@ -138,10 +141,49 @@ Bid to highest
 if __name__ == '__main__':
     # tk_gui()
     
-    ENVFILE = os.getenv('ENV', 'development')
-    env_file = f".env.{ENVFILE}"
-    load_dotenv(dotenv_path=env_file)
+    # ENVFILE = os.getenv('ENV')
+    # if(ENVFILE != 'development'):
+    #     env_file = f".env"
+    # else:
+    #     env_file = f".env.{ENVFILE}"
+    # load_dotenv(dotenv_path=env_file)
+        
+    extDataDir = os.getcwd()
+    if getattr(sys, 'frozen', False):
+        extDataDir = sys._MEIPASS
+    load_dotenv(dotenv_path=os.path.join(extDataDir, '.env'))
     root = Tk()
     BidGui(root)
     root.mainloop()
+    
+    
+    # item_log = []
+    # item_log.append({
+    #     # "automation_link": "http:example.com",
+    #     "lot": "50",
+    #     # "client": "someaccount.com",
+    #     "target_price": 100.0,
+    #     "previous_price": 45.50,
+    #     "status": "success",
+    #     "timestamp": datetime.now().isoformat()
+    # })
+    # # if(len(item_log) == 20):
+    # response = requests.post(f'{os.getenv("LOG_BACK")}/items/logs', json={"items": item_log, "automation_link": "http:example.com", "client": "someaccount.com"})
+    # print(response.text)
 
+
+    # response = requests.post(f'{os.getenv("LOG_BACK")}/logs/transaction', 
+    #                 json={
+    #                         "transaction_id": "abcd",
+    #                         "automation_link": "abcd",
+    #                         "timestamp": datetime.now().isoformat(),
+    #                         "client": "abcd",
+    #                         "action": "Automated Bid",
+    #                         "success": True,
+    #                         # "message": "",
+    #                         "cust_win_count": 10,
+    #                         "cust_win_increased_price": 10.55,
+    #                         "bot_win_count": 10,
+    #                         "bot_win_increased_price": 10.65
+    #                     })
+    # print(f'Log: {response.text}')

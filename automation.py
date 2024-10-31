@@ -3,9 +3,11 @@ from tools import get_upper_level_url
 import pandas as pd
 from datetime import datetime
 import requests
+import os
+import uuid
+import traceback
 
 
-log_url = "http://127.0.0.1:8000/items/logs"  # Change the port if your server runs on a different one
 
 class Automation:
     
@@ -24,15 +26,15 @@ class Automation:
         self.bid_link = bid_link
     
     async def login_bot(self, page, bot_acc, bot_pwd, url):
-        await page.goto("https://hibid.com/")
+        await page.goto(url)
         self.bid_link = url
         # Check if login success or not
-        login_status = page.locator('[class="welcome-label"]')
-        if await login_status.count() != 0:
+        login_status = page.get_by_text("Login / New Bidder", exact=True)
+        if await login_status.count() == 0:
             return
         
         # Login
-        await page.get_by_label("Login / New Bidder", exact=True).click()
+        await login_status.click()
         await page.locator('[aria-labelledby="email-label"]').fill(bot_acc)
         await asyncio.sleep(1)
         await page.locator('[aria-labelledby="password-label"]').fill(bot_pwd)
@@ -49,10 +51,10 @@ class Automation:
         
     async def login_manager(self, page, mng_acc, mng_pwd, url):
         await page.goto('https://my.hibid.com/auctioneer/auctions/current/')
-        
         # Check if manager login success
         if(page.url == 'https://my.hibid.com/auctioneer/auctions/current/'):
             await page.goto(url)
+            self.show_log(url)
             return
         
         await page.locator('[id="auctioneer-logon-username"]').fill(mng_acc)
@@ -83,6 +85,7 @@ class Automation:
 
         url = get_upper_level_url(page.url)
         url = url + '?q=&buyer=0&SortOrder=5&ProductStatus=0&All=False'
+        self.show_log(url)
         await page.goto(url)
         await page.wait_for_load_state('networkidle')
         # await page.select_option('#sortOrder', value="5")
@@ -151,8 +154,9 @@ class Automation:
         self.show_log(f'Get valid lot info totally: {valid_lot_count}')
         return
             
-    async def start_automation_async(self, bot_page, mng_page, bot_acc):
+    async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc):
         await self.get_bids_info(mng_page)
+        unique_id = str(uuid.uuid4())
         item_log = []
         # return
         try:
@@ -169,6 +173,8 @@ class Automation:
                         if final_bid_price != 0:
                             self.bid_cust_win_count += 1
                             self.bid_to_cust_max += (final_bid_price - previous)
+                    else:
+                        continue
                 elif bid_info['msrp_price'] > 100:
                     # current bid price is less than max bid price or 20% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
@@ -182,37 +188,69 @@ class Automation:
                             else:
                                 self.bid_bot_win_count += 1
                                 self.bid_to_bot_max += (final_bid_price - previous)
+                    else:
+                        continue
                 else:
-                    print('Loss msrp price indication')
+                    self.show_log(f'No msrp price indication for lot: {lot}')
+                    continue
                 item_log.append({
-                    "automation_link": self.bid_link,
+                    # "automation_link": self.bid_link,
                     "lot": lot,
-                    "client": bot_acc,
+                    # "client": bot_acc,
                     "target_price": final_bid_price,
                     "previous_price": previous,
                     "status": status,
                     "timestamp": datetime.now().isoformat()
                 })
                 if(len(item_log) == 20):
-                    response = requests.post(log_url, json=item_log)
-                    self.show_log(f'Log: {response}')
+                    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/items', 
+                                             json={
+                                                 "transaction_id": unique_id,
+                                                 "items": item_log, 
+                                                 "automation_link": self.bid_link, 
+                                                 "client": bot_acc
+                                                 })
+                    self.show_log(f'Log: {response.text}')
                     item_log.clear()
-                # await asyncio.sleep(5)
+                await asyncio.sleep(2)
             if(len(item_log) != 0):
-                response = requests.post(log_url, json=item_log)
-                self.show_log(f'Log: {response}')
+                    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/items', 
+                                             json={
+                                                 "transaction_id": unique_id,
+                                                 "items": item_log, 
+                                                 "automation_link": self.bid_link, 
+                                                 "client": bot_acc
+                                                 })
+                    self.show_log(f'Log: {response.text}')
+            response = requests.post(f'{os.getenv("LOG_BACK")}/logs/transaction', 
+                            json={
+                                    "transaction_id": unique_id,
+                                    "automation_link": self.bid_link,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "client": mng_acc,
+                                    "action": "Automated Bid",
+                                    "success": True,
+                                    # "message": "",
+                                    "cust_win_count": self.bid_cust_win_count,
+                                    "cust_win_increased_price": self.bid_to_cust_max,
+                                    "bot_win_count": self.bid_bot_win_count,
+                                    "bot_win_increased_price": self.bid_to_bot_max
+                                })
+            self.show_log(f'Log: {response.text}')
             self.show_log(f'Bid customer win totally: {self.bid_cust_win_count}')
             self.show_log(f'Bid customer win price total: {self.bid_to_cust_max}')
             self.show_log(f'Bid bot win totally: {self.bid_bot_win_count}')
             self.show_log(f'Bid bot win totally: {self.bid_to_bot_max}')
         except Exception as e:
-            self.show_log(e)
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
         
     
     async def bot_bid(self, page, lot, target_price):
         print(self.bid_link + f'?q={lot}')
         try:
             await page.goto(self.bid_link + f'?q={lot}')
+            await page.wait_for_load_state('networkidle')
             await self.clear_subscribe_modal(page)
             
             # Start bid
@@ -233,7 +271,7 @@ class Automation:
             bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
             # Bid to the target price
             while bid_price_list[-1] <= target_price:
-                # await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
                 await bid_button.click()
                 bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
                 current_bid_amount = float(bid_amount_text.replace(',', ''))
@@ -244,15 +282,15 @@ class Automation:
             
             if len(bid_price_list) == 0:
                 await bid_modal.get_by_label("Close", exact=True).click()
+                return previous_price, previous_price, 'skip'
             else:
                 await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
                 # page.get_by_label("Click to confirm bid", exact=True)
                 await bid_modal.get_by_label("Close", exact=True).click()
                 return previous_price, bid_price_list[-1], 'success'
-            return previous_price, bid_price_list[-1], 'skip'
         except Exception as e:
-            pass
+            raise(e)
             # send error to server
             # return previous_price, previous_price, 'failed'
     
