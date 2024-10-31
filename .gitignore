@@ -12,8 +12,8 @@ celerybeat*
 rtbid/
 build/
 dist/
-main.spec
 .env*
+*.spec
 
 playwright-bot-data/*
 playwright-mng-data/*
