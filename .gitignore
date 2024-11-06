@@ -13,6 +13,7 @@ rtbid/
 build/
 dist/
 .env*
+.venv*
 *.spec
 
 playwright-bot-data/*
