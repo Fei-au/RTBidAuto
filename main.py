@@ -1,12 +1,12 @@
+import os
+extDataDir = os.getcwd()
+if getattr(sys, 'frozen', False):
+    extDataDir = sys._MEIPASS
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(extDataDir, "playwright-browsers")
+
 from tkinter import *
-from tkinter import ttk
 from bid_gui import BidGui
 from dotenv import load_dotenv
-import os
-from pathlib import Path
-import json
-from datetime import datetime
-import requests
 import sys
 
 
@@ -152,6 +152,9 @@ if __name__ == '__main__':
     if getattr(sys, 'frozen', False):
         extDataDir = sys._MEIPASS
     load_dotenv(dotenv_path=os.path.join(extDataDir, '.env'))
+
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(extDataDir, "playwright-browsers")
+
     root = Tk()
     BidGui(root)
     root.mainloop()
