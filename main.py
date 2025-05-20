@@ -1,4 +1,6 @@
 import os
+import sys
+
 extDataDir = os.getcwd()
 if getattr(sys, 'frozen', False):
     extDataDir = sys._MEIPASS
@@ -7,7 +9,6 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(extDataDir, "playwright-br
 from tkinter import *
 from bid_gui import BidGui
 from dotenv import load_dotenv
-import sys
 
 
 '''
