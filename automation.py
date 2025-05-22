@@ -154,7 +154,7 @@ class Automation:
         self.show_log(f'Get valid lot info totally: {valid_lot_count}')
         return
             
-    async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc):
+    async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc, twenty_switch):
         await self.get_bids_info(mng_page)
         unique_id = str(uuid.uuid4())
         item_log = []
@@ -178,7 +178,10 @@ class Automation:
                 elif bid_info['msrp_price'] > 100:
                     # current bid price is less than max bid price or 20% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
-                    target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
+                    if twenty_switch:
+                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
+                    else:
+                        target_price = bid_info['max_bid_price']
                     if bid_info['high_bid'] < target_price:
                         previous, final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
                         if final_bid_price != 0:

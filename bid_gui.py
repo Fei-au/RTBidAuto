@@ -35,6 +35,8 @@ class BidGui:
 
         self.management_lot_link = StringVar()
         self.bid_lot_link = StringVar()
+        
+        self.twenty_switch = BooleanVar()
 
         ttk.Label(mainframe, text='Hibid Management Account').grid(column=1, row=1, sticky=W)
         manager_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.manager_acc)
@@ -59,6 +61,10 @@ class BidGui:
         ttk.Label(mainframe, text='Bid Lot Link').grid(column=1, row=6, sticky=W)
         bot_pwd_entry = ttk.Entry(mainframe, width=15, textvariable=self.bid_lot_link)
         bot_pwd_entry.grid(column=2, row=6, sticky=(W, E))
+        
+        ttk.Label(mainframe, text=">100 20% switch").grid(column=1, row=7, sticky=W)
+        twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
+        twenty_switch.grid(column=2, row=7, sticky=(W, E))
 
         ttk.Button(mainframe, text='Open Auction File', command=self.open_file).grid(ipadx=5, column=2, row=101, sticky=W)
         ttk.Button(mainframe, text='Login accounts', command=self.login_accounts).grid(ipadx=5, column=1, row=102, sticky=W)
@@ -75,7 +81,6 @@ class BidGui:
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
         self.scrollbar.grid(column=3, row=151, sticky=(N, S))
         self.log_text["yscrollcommand"] = self.scrollbar.set
-        
         
         # Log area setup
         self.message = Text(mainframe, wrap="word", width=30, height=15)
@@ -111,6 +116,9 @@ class BidGui:
             self.bot_pwd.set(bot_pwd)
             self.manager_acc.set(manager_acc)
             self.manager_pwd.set(manager_pwd)
+        
+        # Set twenty switch as default
+        self.twenty_switch.set(True)
         
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
@@ -148,7 +156,13 @@ class BidGui:
         try:
             # if hasattr(self, 'mng_page') and self.mng_page is not None and hasattr(self, 'bot_page') and self.bot_page is not None:
                 
-                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(self.bot_page, self.mng_page, self.bot_acc.get(), self.manager_acc.get()), self.loop)
+                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(
+                    self.bot_page, 
+                    self.mng_page, 
+                    self.bot_acc.get(),
+                    self.manager_acc.get(),
+                    self.twenty_switch.get(),
+                    ), self.loop)
                 # asyncio.run_coroutine_threadsafe(self.automation.bot_bid(self.bot_page, "2", 425), self.loop)
             # else:
             #     self.show_message('Please login accounts first')
