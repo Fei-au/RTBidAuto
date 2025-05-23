@@ -3,6 +3,7 @@ from urllib.parse import urlparse, urlunparse
 import os
 from pathlib import Path
 import json
+import requests
 
 
 def get_upper_level_url(url):
@@ -36,12 +37,19 @@ def load_credentials():
             return json.load(file)
     return None
 
-def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd):
+def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd, mng_link, bid_link):
     with open(credentials_file, 'w') as file:
-        json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd}, file)
+        json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd, "MNG_LINK": mng_link, "BID_LINK": bid_link}, file)
 
 def get_local_dir():
     return app_data_path
 
         
-        
+LOG_BACK = f'{os.getenv("LOG_BACK")}/logs'
+def add_log(path, data):
+    response = requests.post(f'{os.getenv("LOG_BACK")}/logs{path}', 
+        json=data)
+    if response.status_code == 200:
+        return response.text
+    else:
+        return f"Warning: {response.status_code} - {response.text}"

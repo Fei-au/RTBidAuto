@@ -9,6 +9,9 @@ from automation import Automation
 from tools import load_credentials, save_credentials, get_local_dir
 import os
 import traceback
+import random
+import datetime
+
 
 class BidGui:
 
@@ -17,7 +20,7 @@ class BidGui:
         self.message = None
         self.log = None
         self.bot_page = None
-        self.automation = Automation(self.show_log)
+        self.automation = Automation(self.show_log, self.show_message)
 
         root.title("Hibid Automation")
 
@@ -38,27 +41,33 @@ class BidGui:
         
         self.twenty_switch = BooleanVar()
 
-        ttk.Label(mainframe, text='Hibid Management Account').grid(column=1, row=1, sticky=W)
+        mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
+        mainframe.grid_columnconfigure(1, weight=1)  # Message area
+        mainframe.grid_columnconfigure(2, weight=1)  # Log start column
+        mainframe.grid_columnconfigure(3, weight=1)  # Log middle column
+        mainframe.grid_columnconfigure(4, weight=1)  # Log end column
+
+        ttk.Label(mainframe, text='*Hibid Management Account').grid(column=1, row=1, sticky=W)
         manager_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.manager_acc)
         manager_acc_entry.grid(column=2, row=1, sticky=(W, E))
 
-        ttk.Label(mainframe, text='Hibid Management Password').grid(column=1, row=2, sticky=W)
+        ttk.Label(mainframe, text='*Hibid Management Password').grid(column=1, row=2, sticky=W)
         manager_pwd_entry = ttk.Entry(mainframe, show="*", width=10, textvariable=self.manager_pwd)
         manager_pwd_entry.grid(column=2, row=2, sticky=(W, E))
 
         ttk.Label(mainframe, text='Hibit Bot Account').grid(column=1, row=3, sticky=W)
-        bot_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.bot_acc)
+        bot_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.bot_acc, state='disabled')
         bot_acc_entry.grid(column=2, row=3, sticky=(W, E))
 
         ttk.Label(mainframe, text='Hibit Bot Password').grid(column=1, row=4, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, show="*", width=10, textvariable=self.bot_pwd)
+        bot_pwd_entry = ttk.Entry(mainframe, show="*", width=10, textvariable=self.bot_pwd, state='disabled')
         bot_pwd_entry.grid(column=2, row=4, sticky=(W, E))
 
-        ttk.Label(mainframe, text='Hibid Management Link').grid(column=1, row=5, sticky=W)
+        ttk.Label(mainframe, text='*Hibid Management Link').grid(column=1, row=5, sticky=W)
         bot_pwd_entry = ttk.Entry(mainframe, width=15, textvariable=self.management_lot_link)
         bot_pwd_entry.grid(column=2, row=5, sticky=(W, E))
 
-        ttk.Label(mainframe, text='Bid Lot Link').grid(column=1, row=6, sticky=W)
+        ttk.Label(mainframe, text='*Bid Lot Link').grid(column=1, row=6, sticky=W)
         bot_pwd_entry = ttk.Entry(mainframe, width=15, textvariable=self.bid_lot_link)
         bot_pwd_entry.grid(column=2, row=6, sticky=(W, E))
         
@@ -66,25 +75,29 @@ class BidGui:
         twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
         twenty_switch.grid(column=2, row=7, sticky=(W, E))
 
-        ttk.Button(mainframe, text='Open Auction File', command=self.open_file).grid(ipadx=5, column=2, row=101, sticky=W)
-        ttk.Button(mainframe, text='Login accounts', command=self.login_accounts).grid(ipadx=5, column=1, row=102, sticky=W)
-        ttk.Button(mainframe, text='Start Automation', command=self.start_automation).grid(ipadx=5, column=2, row=102, sticky=W)
+        ttk.Button(mainframe, text='1. Open Auction File', command=self.open_file).grid(ipadx=5, column=1, row=101, sticky=W)
+        ttk.Button(mainframe, text='2. Login Accounts', command=self.login_accounts).grid(ipadx=5, column=2, row=101, sticky=W)
+        ttk.Button(mainframe, text='3. Collect Information', command=self.collect_information).grid(ipadx=5, column=1, row=102, sticky=W)
+        self.start_button = ttk.Button(mainframe, text='4. Start Automation', command=self.start_automation)
+        self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
+        self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
+        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=W)
 
         ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=E)
         
         # Log area setup
-        self.log_text = Text(mainframe, wrap="word", width=50, height=15)
-        self.log_text.grid(column=2, row=151, sticky=(W, E))
+        self.log_text = Text(mainframe, wrap="word", height=15)
+        self.log_text.grid(column=2, row=151, columnspan=3, sticky=(N, S, E, W))
         self.log_text.config(state="disabled")  # Start as read-only
         
         # Scrollbar for the log area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=3, row=151, sticky=(N, S))
+        self.scrollbar.grid(column=5, row=151, sticky=(N, S, W, E))
         self.log_text["yscrollcommand"] = self.scrollbar.set
         
         # Log area setup
         self.message = Text(mainframe, wrap="word", width=30, height=15)
-        self.message.grid(column=1, row=151, sticky=(W, E))
+        self.message.grid(column=1, row=151, sticky=(N, S, W, E))
         self.message.config(state="disabled")  # Start as read-only
 
         
@@ -108,14 +121,20 @@ class BidGui:
         # Load credential from local json file
         credentials = load_credentials()
         if credentials:
-            bot_acc = credentials.get("BOT_ACC")
-            bot_pwd = credentials.get("BOT_PWD")
+            # bot_acc = credentials.get("BOT_ACC")
+            # bot_pwd = credentials.get("BOT_PWD")
             manager_acc = credentials.get("MNG_ACC")
             manager_pwd = credentials.get("MNG_PWD")
-            self.bot_acc.set(bot_acc)
-            self.bot_pwd.set(bot_pwd)
+            # self.bot_acc.set(bot_acc)
+            # self.bot_pwd.set(bot_pwd)
             self.manager_acc.set(manager_acc)
             self.manager_pwd.set(manager_pwd)
+            
+            mng_link = credentials.get("MNG_LINK")
+            bid_link = credentials.get("BID_LINK")
+            self.management_lot_link.set(mng_link)
+            self.bid_lot_link.set(bid_link)
+            
         
         # Set twenty switch as default
         self.twenty_switch.set(True)
@@ -150,32 +169,81 @@ class BidGui:
     # Login manager and bot accounts
     def login_accounts(self):
         if self.check_form():
-            asyncio.run_coroutine_threadsafe(self.login_accounts_async(), self.loop)
+            future = asyncio.run_coroutine_threadsafe(self.login_accounts_async(), self.loop)
+            def done_callback(fut):
+                try:
+                    res = fut.result()
+                    self.show_message(res)
+                except Exception as e:
+                    self.show_log(f"Error in login: {str(e)}")
+            future.add_done_callback(done_callback)
             
+            
+    def collect_information(self):
+        future = asyncio.run_coroutine_threadsafe(self.automation.get_bids_info(
+            self.mng_page, 
+            ), self.loop)
+        def done_callback(fut):
+            try:
+                res = fut.result()
+                self.show_message(res)
+            except Exception as e:
+                self.show_log(f"Error in collection information: {str(e)}")
+        future.add_done_callback(done_callback)
+        
     def start_automation(self):
         try:
-            # if hasattr(self, 'mng_page') and self.mng_page is not None and hasattr(self, 'bot_page') and self.bot_page is not None:
+            if not self.automation.is_running:
+                self.automation.is_running = True
+                self.automation.set_twenty_switch(self.twenty_switch.get())
+                self.stop_button.config(state='normal')
+                self.start_button.config(state='disabled')
                 
-                asyncio.run_coroutine_threadsafe(self.automation.start_automation_async(
-                    self.bot_page, 
-                    self.mng_page, 
-                    self.bot_acc.get(),
-                    self.manager_acc.get(),
-                    self.twenty_switch.get(),
-                    ), self.loop)
-                # asyncio.run_coroutine_threadsafe(self.automation.bot_bid(self.bot_page, "2", 425), self.loop)
-            # else:
-            #     self.show_message('Please login accounts first')
+                # Create the async task
+                future = asyncio.run_coroutine_threadsafe(
+                    self.automation.start_automation_async(
+                        self.bot_page, 
+                        self.mng_page, 
+                        self.bot_acc.get(),
+                        self.manager_acc.get()
+                    ), 
+                    self.loop
+                )
+                
+                def done_callback(fut):
+                    try:
+                        res = fut.result()
+                        self.show_message(res)
+                    except Exception as e:
+                        self.show_log(f"Error in automation: {str(e)}")
+                    finally:
+                        self.stop_automation_cleanup()
+                future.add_done_callback(done_callback)
+                
         except Exception as e:
+            self.automation.stop_automation()
+            self.stop_button.config(state='disabled') 
+            self.start_button.config(state='normal')
             error_details = traceback.format_exc()
             self.show_log(error_details)
+          
+
+    def stop_automation_cleanup(self):
+        if self.automation.is_running:
+            self.automation.stop_automation()
+            self.stop_button.config(state='disabled')
+            self.start_button.config(state='normal')
             
+    def stop_automation(self):
+        self.show_log("Stopping automation... Please wait for current operation to complete.")
+        self.stop_automation_cleanup()
+        
     def show_message(self, msg):
         # Enable text widget to insert new msg
         self.message.config(state="normal")
         
         # Insert log at the end with a new line
-        self.message.insert("end", msg + "\n")
+        self.message.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + msg + "\n")
         
         # Scroll to the end
         self.message.see("end")
@@ -194,7 +262,7 @@ class BidGui:
         self.log_text.config(state="normal")
         
         # Insert log at the end with a new line
-        self.log_text.insert("end", log + "\n")
+        self.log_text.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + log + "\n")
         
         # Scroll to the end
         self.log_text.see("end")
@@ -210,39 +278,75 @@ class BidGui:
         manager_data_dir = get_local_dir() / "playwright-mng-data"
         bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
         manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
-
+        viewport = {
+            "width": 1980 + random.randint(0, 100),
+            "height": 1080 + random.randint(0, 100)
+        }
         try:
-            self.bot_browser = await self.playwright.chromium.launch_persistent_context(bot_data_dir, headless=False)
-            self.bot_page = self.bot_browser.pages[0]
+            browser = await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
+            # Get the first existing context or create one if none exists
+            contexts = browser.contexts
+            if contexts:
+                context = contexts[0]
+            else:
+                context = await browser.new_context()
+            
+            # Get the first existing page or open a new one
+            pages = context.pages
+            if pages:
+                page = pages[0]
+            else:
+                page = await context.new_page()
+            
+            self.bot_page = page
+            
+            # self.bot_browser = await self.playwright.chromium.launch_persistent_context(
+            #     bot_data_dir, 
+            #     headless=False, 
+            #     viewport=viewport,
+            #     locale="en-US",
+            #     timezone_id="America/New_York",
+            #     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            #             "(KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+            #     args=[
+            #         "--start-maximized",   # Optional: starts maximized (can help mimic real user)
+            #     ],
+            #     # accept="text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            #     # accept-encoding: 'gzip, deflate, br, zsdch, zstd',
+
+            # )
+            # self.bot_page = self.bot_browser.pages[0]
             bot_acc = self.bot_acc.get()
             bot_pwd = self.bot_pwd.get()
             manager_acc = self.manager_acc.get()
             manager_pwd = self.manager_pwd.get()
+            
             await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
             self.mng_browser = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
             self.mng_page = self.mng_browser.pages[0]
+
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
-            save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd)
-            self.show_message('Login success! Now you can start automation.')
+            save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd, self.management_lot_link.get(), self.bid_lot_link.get())
+            return 'Login success! Please collect bid information.'
         except NavigationError as e:
-            self.show_message(e)
-            # await self.browser.close()
+            self.show_log(e)
+            await self.browser.close()
         except Exception as e:
-            self.show_message(e)
+            self.show_log(e)
             await self.browser.close()
 
     def check_form(self):
-        check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' or self.bot_acc.get() == '' or self.bot_pwd.get() == '' or self.bid_lot_link.get() == '' or self.management_lot_link.get() == '' else True
+        check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' else True
         if not check_success:
             self.show_message("Please input all required fileds")
         # else:
         #     self.hide_message()
         return check_success
-            
-        
 
 
 
 
-    
+
+
+
 
