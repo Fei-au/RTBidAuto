@@ -1,11 +1,5 @@
 import os
 import sys
-
-extDataDir = os.getcwd()
-if getattr(sys, 'frozen', False):
-    extDataDir = sys._MEIPASS
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(extDataDir, "playwright-browsers")
-
 from tkinter import *
 from bid_gui import BidGui
 from dotenv import load_dotenv
@@ -148,7 +142,7 @@ if __name__ == '__main__':
     # else:
     #     env_file = f".env.{ENVFILE}"
     # load_dotenv(dotenv_path=env_file)
-        
+
     extDataDir = os.getcwd()
     if getattr(sys, 'frozen', False):
         extDataDir = sys._MEIPASS

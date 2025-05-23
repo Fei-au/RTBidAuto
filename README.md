@@ -5,9 +5,12 @@
 python main.py
 ```
 ## Deploy an app
+Include browsers in .exe
 ```
-pyinstaller --onefile --noconsole --name="Auto Bid" --add-data=".env;." main.py
+pyinstaller --onefile --noconsole --name="Auto Bid" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
 ```
+
+
 
 
 ## Steps to bypass login checker

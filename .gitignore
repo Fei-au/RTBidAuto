@@ -19,3 +19,4 @@ playwright-browsers
 
 playwright-bot-data/*
 playwright-mng-data/*
+*.exe
