@@ -198,10 +198,11 @@ class Automation:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
                     if bid_info['high_bid'] < bid_info['max_bid_price']:
-                        previous, final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
-                        if final_bid_price != 0:
+                        final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
+                        # statistics
+                        if status == 'success' and final_bid_price != 0:
                             self.bid_cust_win_count += 1
-                            self.bid_to_cust_max += (final_bid_price - previous)
+                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
                     else:
                         continue
                 elif bid_info['msrp_price'] > 100:
@@ -212,14 +213,15 @@ class Automation:
                     else:
                         target_price = bid_info['max_bid_price']
                     if bid_info['high_bid'] < target_price:
-                        previous, final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
-                        if final_bid_price != 0:
+                        final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
+                        # statistics
+                        if status == 'success' and final_bid_price != 0:
                             if(target_price == bid_info['max_bid_price']):
                                 self.bid_cust_win_count += 1
-                                self.bid_to_cust_max += (final_bid_price - previous)
+                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
                             else:
                                 self.bid_bot_win_count += 1
-                                self.bid_to_bot_max += (final_bid_price - previous)
+                                self.bid_to_bot_max += (final_bid_price - bid_info['high_bid'])
                     else:
                         continue
                 else:
@@ -235,7 +237,7 @@ class Automation:
                     "lot": lot,
                     # "client": bot_acc,
                     "target_price": final_bid_price,
-                    "previous_price": previous,
+                    "previous_price": bid_info['high_bid'],
                     "status": status,
                     "timestamp": datetime.now().isoformat(),
                 })
@@ -283,6 +285,11 @@ class Automation:
         self.show_message(f'Summary of this automation:')
         self.show_message(f'Customer total win lots: {self.bid_cust_win_count}, price increased by: {self.bid_to_cust_max}')
         self.show_message(f'Bot total win lots: {self.bid_bot_win_count}, price increased by: {self.bid_to_bot_max}')
+        # reset statistics
+        self.bid_cust_win_count = 0
+        self.bid_to_cust_max = 0
+        self.bid_bot_win_count = 0
+        self.bid_to_bot_max = 0
         return f"{unique_id} Automation finished"
     
     async def bot_bid(self, page, lot, target_price):
@@ -304,7 +311,6 @@ class Automation:
             # Initial bid price
             bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
             current_bid_amount = float(bid_amount_text.replace(',', ''))
-            previous_price = current_bid_amount
             bid_price_list = [current_bid_amount]
             
             bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
@@ -315,19 +321,20 @@ class Automation:
                 bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
                 current_bid_amount = float(bid_amount_text.replace(',', ''))
                 bid_price_list.append(current_bid_amount)
+                # prevent infinite loop when the price is not increasing
                 if current_bid_amount == bid_price_list[-2]:
                     break
             bid_price_list.pop()
             
             if len(bid_price_list) == 0:
                 await bid_modal.get_by_label("Close", exact=True).click()
-                return previous_price, previous_price, 'skip'
+                return target_price, 'skip'
             else:
                 await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
                 await page.get_by_label("Click to confirm bid", exact=True).click()
                 # await bid_modal.get_by_label("Close", exact=True).click()
-                return previous_price, bid_price_list[-1], 'success'
+                return bid_price_list[-1], 'success'
         except Exception as e:
             raise(e)
             # send error to server

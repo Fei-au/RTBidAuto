@@ -21,4 +21,4 @@ pyinstaller --onefile --noconsole --name="Auto Bid" --add-data=".env;." --add-da
 2. Manully go to the page and login , note: login the same domain like company.bid.com, instead of www.bid.com
    
 3. Start the app and connect with browser
-4. Start using
+4. Now it's ready to use
