@@ -7,8 +7,7 @@ import os
 import uuid
 import traceback
 import random
-
-
+    
 
 class Automation:
     
@@ -97,6 +96,10 @@ class Automation:
         await page.goto(url)
         self.show_log(f'Login manager...')
         
+        
+        
+
+    
     async def get_bids_info(self, page):
         # Sort by bid count
         
@@ -107,74 +110,114 @@ class Automation:
         # await page.click('option[value="5"]')  # This might vary based on the custom implementation
 
         url = get_upper_level_url(page.url)
-        url = url + '?q=&buyer=0&SortOrder=5&ProductStatus=0&All=False'
+        url = url + '?q=&buyer=0&hide=true&SortOrder=2&ProductStatus=0&All=True'
         await page.goto(url)
         await page.wait_for_load_state('networkidle')
         # await page.select_option('#sortOrder', value="5")
 
-        break_flag = False
         valid_lot_count = 0
         
-        while True:
+        rows_data = await page.evaluate("""
+            () => {
+                const rows = Array.from(document.querySelectorAll('table#lot-list tbody tr'));
+                const valid_rows = rows.filter(tr => tr.querySelector('.lot-bid-max').innerText != '0.00');
+                return valid_rows.map(tr => ({
+                    maxBid: parseFloat(tr.querySelector('.lot-bid-max').innerText.replace(',', '')),
+                    highBid: parseFloat(tr.querySelector('.lot-high-bid').innerText.split(' ')[0].replace(',', '')),
+                    lotNumber: tr.querySelector('.lot-number-lead.lot-link').innerText.split(' ')[0],
+                    bidder: tr.querySelector('.name-expand').innerText.split(' ')[0],
+                }));
+            }
+        """)
             
-            # Find a table with id 'lot-list', which includes a tbody with multiple tr
-            trs = page.locator('table[id="lot-list"] tbody tr')
-            count = await trs.count()
-            if(count == 0 or break_flag):
-                break
-            
-            for i in range(count):
-                
-                tr = trs.nth(i)
-                # Get max price by Find a td with class 'lot-bid-max'
-                lot_max = tr.locator('[class="lot-bid-max"]')
-                max_bid_price = await lot_max.nth(0).inner_text()
-                max_bid_price = float(max_bid_price.replace(',', ''))
-                if(max_bid_price == 0):
-                    # break while loop
-                    break_flag = True
-                    break
-                
-                # Get lot number by finding a td with class 'lot-number-lead lot-link'
-                lot_leads = tr.locator('[class="lot-number-lead lot-link"]')
-                leads = await lot_leads.nth(0).inner_text()
-                lot = leads.split(' ')[0]
-
-                # Get currently lot-high-bid by Find a span with div class 'lot-high-bid'
-                lot_high_bid = tr.locator('[class="lot-high-bid"]')
-                high_bid_text = await lot_high_bid.nth(0).inner_text()
-                high_bid = float(high_bid_text.split(' ')[0].replace(',', ''))
-                # Get bid high person by Find a span with class 'name-expand'
-                name_expanded = tr.locator('[class="name-expand"]')
-                bidder = await name_expanded.nth(0).inner_text()
-                bidder_id = bidder.split(' ')[0]
-                
-                lot_info = self.lot_dict.get(lot) 
-                if lot_info:
-                    lot_info['max_bid_price'] = max_bid_price
-                    lot_info['bidder_id'] = bidder_id
-                    lot_info['high_bid'] = high_bid
-                else:
-                    self.lot_dict[lot] = {
-                        'msrp_price': 0,
-                        'max_bid_price': max_bid_price,
-                        'bidder_id': bidder_id,
-                        'high_bid': high_bid
-                    }
-                valid_lot_count += 1
-                
-                self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
-                # Find text with 'Next' and click
-                
-            last_li = page.locator('table[id="lot-list"] thead tr th ul li').nth(-1)
-            span = last_li.locator('span', has_text="Next")
-            if await span.count() > 0 and not break_flag:
-                await span.click()
-                await page.wait_for_load_state('networkidle')
+        
+        # Process the data in Python
+        for row in rows_data:
+            lot = row['lotNumber']
+            max_bid_price = row['maxBid']
+            high_bid = float(row['highBid'])
+            bidder_id = float(row['bidder'])
+            lot_info = self.lot_dict.get(lot) 
+            if lot_info:
+                lot_info['max_bid_price'] = max_bid_price
+                lot_info['bidder_id'] = bidder_id
+                lot_info['high_bid'] = high_bid
             else:
-                break_flag = True
+                self.lot_dict[lot] = {
+                    'msrp_price': 0,
+                    'max_bid_price': max_bid_price,
+                    'bidder_id': bidder_id,
+                    'high_bid': high_bid
+                }
+            valid_lot_count += 1
+            self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
         self.show_log(f'Get valid lot info totally: {valid_lot_count}')
         return "Collect lot info finished"
+        
+        # break_flag = False
+        # Process the rows in batches
+        # while True:
+            
+        #     # Find a table with id 'lot-list', which includes a tbody with multiple tr
+        #     trs = page.locator('table[id="lot-list"] tbody tr')
+        #     count = await trs.count()
+        #     if(count == 0 or break_flag):
+        #         break
+            
+        #     for i in range(count):
+        #         print(f'Processing lot {i+1}/{count}')
+        #         tr = trs.nth(i)
+        #         # Get max price by Find a td with class 'lot-bid-max'
+        #         lot_max = tr.locator('[class="lot-bid-max"]')
+        #         max_bid_price = await lot_max.nth(0).inner_text()
+        #         max_bid_price = float(max_bid_price.replace(',', ''))
+        #         if(max_bid_price == 0):
+        #             # break while loop
+        #             break_flag = True
+        #             break
+                
+        #         # Get lot number by finding a td with class 'lot-number-lead lot-link'
+        #         lot_leads = tr.locator('[class="lot-number-lead lot-link"]')
+        #         leads = await lot_leads.nth(0).inner_text()
+        #         lot = leads.split(' ')[0]
+
+        #         # Get currently lot-high-bid by Find a span with div class 'lot-high-bid'
+        #         lot_high_bid = tr.locator('[class="lot-high-bid"]')
+        #         high_bid_text = await lot_high_bid.nth(0).inner_text()
+        #         high_bid = float(high_bid_text.split(' ')[0].replace(',', ''))
+        #         # Get bid high person by Find a span with class 'name-expand'
+        #         name_expanded = tr.locator('[class="name-expand"]')
+        #         bidder = await name_expanded.nth(0).inner_text()
+        #         bidder_id = bidder.split(' ')[0]
+                
+        #         lot_info = self.lot_dict.get(lot) 
+        #         if lot_info:
+        #             lot_info['max_bid_price'] = max_bid_price
+        #             lot_info['bidder_id'] = bidder_id
+        #             lot_info['high_bid'] = high_bid
+        #         else:
+        #             self.lot_dict[lot] = {
+        #                 'msrp_price': 0,
+        #                 'max_bid_price': max_bid_price,
+        #                 'bidder_id': bidder_id,
+        #                 'high_bid': high_bid
+        #             }
+        #         valid_lot_count += 1
+                
+        #         self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
+        #         # Find text with 'Next' and click
+                
+        #     last_li = page.locator('table[id="lot-list"] thead tr th ul li').nth(-1)
+        #     print(f'last_li: {last_li}')
+        #     print(f'last_li type: {type(last_li)}')
+        #     span = last_li.locator('span', has_text="Next")
+        #     if await span.count() > 0 and not break_flag:
+        #         await span.click()
+        #         await page.wait_for_load_state('networkidle')
+        #     else:
+        #         break_flag = True
+        # self.show_log(f'Get valid lot info totally: {valid_lot_count}')
+        # return "Collect lot info finished"
             
     async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc):
         if self.lot_dict == None:
@@ -190,7 +233,7 @@ class Automation:
                 continue
                 
             bid_info = self.lot_dict[lot]
-            if bid_info.get("max_bid_price") == None:
+            if pd.isna(bid_info.get("max_bid_price")):
                 continue
             # if lot == "2":
             # price is less than 100
@@ -332,8 +375,8 @@ class Automation:
             else:
                 await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
-                await page.get_by_label("Click to confirm bid", exact=True).click()
-                # await bid_modal.get_by_label("Close", exact=True).click()
+                # await page.get_by_label("Click to confirm bid", exact=True).click()
+                await bid_modal.get_by_label("Close", exact=True).click()
                 return bid_price_list[-1], 'success'
         except Exception as e:
             raise(e)
