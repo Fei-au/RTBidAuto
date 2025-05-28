@@ -80,8 +80,8 @@ class BidGui:
         ttk.Button(mainframe, text='3. Collect Information', command=self.collect_information).grid(ipadx=5, column=1, row=102, sticky=W)
         self.start_button = ttk.Button(mainframe, text='4. Start Automation', command=self.start_automation)
         self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
-        self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
-        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=W)
+        # self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
+        # self.stop_button.grid(ipadx=5, column=3, row=102, sticky=W)
 
         ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=E)
         
