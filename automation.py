@@ -96,11 +96,8 @@ class Automation:
         await page.goto(url)
         self.show_log(f'Login manager...')
         
-        
-        
-
-    
-    async def get_bids_info(self, page):
+    # mode: 1 for static bid, 2 for infinate bid
+    async def get_bids_info(self, page, mode):
         # Sort by bid count
         
         # sort_order = await page.wait_for_selector('#sortOrder', state='visible', timeout=10000)
@@ -109,8 +106,19 @@ class Automation:
         # This does not work, cannot find any options by any methods
         # await page.click('option[value="5"]')  # This might vary based on the custom implementation
 
-        url = get_upper_level_url(page.url)
-        url = url + '?q=&buyer=0&hide=true&SortOrder=2&ProductStatus=0&All=True'
+        # clean self.lot_dict first, only leave msrp price
+        for lot in self.lot_dict:
+            self.lot_dict[lot] = {'msrp_price': self.lot_dict[lot]['msrp_price']}
+        
+        if mode == 1:
+            query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
+        elif mode == 2:
+            query = '?q=&buyer=0&hide=true&SortOrder=7&ProductStatus=0&All=False'
+        if page.url.find('?q=') == -1:
+            url = get_upper_level_url(page.url)
+            url = url + query
+        else:
+            url = page.url
         await page.goto(url)
         await page.wait_for_load_state('networkidle')
         # await page.select_option('#sortOrder', value="5")
@@ -219,7 +227,8 @@ class Automation:
         # self.show_log(f'Get valid lot info totally: {valid_lot_count}')
         # return "Collect lot info finished"
             
-    async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc):
+    # mode: 1 for static bid, 2 for infinate bid
+    async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc, mode):
         if self.lot_dict == None:
             self.show_log('Please collect lot info first')
             return
@@ -227,16 +236,17 @@ class Automation:
         item_log = []
         self.is_running = True
         
+        # bid limit and bid count
+        limit = 14
+        i = 0
         for lot in self.lot_dict:
-            if not self.is_running:
-                # self.show_log('Automation stopped by user')
-                continue
-                
             bid_info = self.lot_dict[lot]
+            if not self.is_running or (mode == 2 and i >= limit):
+                break
+            
             if pd.isna(bid_info.get("max_bid_price")):
                 continue
-            # if lot == "2":
-            # price is less than 100
+            
             try:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
@@ -270,7 +280,9 @@ class Automation:
                 else:
                     self.show_log(f'No msrp price indication for lot: {lot}')
                     continue
-                await asyncio.sleep(2)
+                print(f'the i the lot: {i}, {lot}, {bid_info.get("max_bid_price")}')
+                i += 1
+                await asyncio.sleep(random.random() + 1)  # Add a random delay 1-2s to simulate human behavior
             except Exception as e:
                 error_details = traceback.format_exc()
                 self.show_log(error_details)
@@ -359,7 +371,7 @@ class Automation:
             bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
             # Bid to the target price
             while bid_price_list[-1] <= target_price:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(random.uniform(0, 0.1))  # Add a random delay to simulate human behavior
                 await bid_button.click()
                 bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
                 current_bid_amount = float(bid_amount_text.replace(',', ''))

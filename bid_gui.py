@@ -82,8 +82,11 @@ class BidGui:
         self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
         self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
         self.stop_button.grid(ipadx=5, column=3, row=102, sticky=W)
+        
+        self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
+        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=W)
 
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=E)
+        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=[W,E])
         
         # Log area setup
         self.log_text = Text(mainframe, wrap="word", height=15)
@@ -181,7 +184,7 @@ class BidGui:
             
     def collect_information(self):
         future = asyncio.run_coroutine_threadsafe(self.automation.get_bids_info(
-            self.mng_page, 
+            self.mng_page, 1,
             ), self.loop)
         def done_callback(fut):
             try:
@@ -191,6 +194,59 @@ class BidGui:
                 self.show_log(f"Error in collection information: {str(e)}")
         future.add_done_callback(done_callback)
         
+        
+    def infinite_bid(self):
+        if not self.automation.is_running:
+            self.automation.is_running = True
+            self.automation.set_twenty_switch(self.twenty_switch.get())
+            self.stop_button.config(state='normal')
+            self.infinate_button.config(state='disabled')
+            self.start_button.config(state='disabled')
+            
+            # Create the async task
+            def get_info():
+                futrue_get_info = asyncio.run_coroutine_threadsafe(
+                    self.automation.get_bids_info(
+                        self.mng_page, 2,
+                    ),
+                    self.loop
+                )
+                def get_info_done_callback(fut):
+                    try:
+                        res = fut.result()
+                        self.show_message(res)
+                        if self.automation.is_running:
+                            automation()
+                    except Exception as e:
+                        self.show_log(f"Error in getting bid information: {str(e)}")
+                futrue_get_info.add_done_callback(get_info_done_callback)
+            
+            def automation():
+                future_automation = asyncio.run_coroutine_threadsafe(
+                    self.automation.start_automation_async(
+                        self.bot_page,
+                        self.mng_page,
+                        self.bot_acc.get(),
+                        self.manager_acc.get(),
+                        2,  # 2 for infinite bid
+                    ),
+                    self.loop
+                )
+                
+                def automation_done_callback(fut):
+                    try:
+                        res = fut.result()
+                        self.show_message(res)
+                        if self.automation.is_running:
+                            get_info()
+                    except Exception as e:
+                        self.show_log(f"Error in automation: {str(e)}")
+                future_automation.add_done_callback(automation_done_callback)
+                
+            # Start the first get_info call
+            get_info()
+                
+
     def start_automation(self):
         try:
             if not self.automation.is_running:
@@ -198,25 +254,29 @@ class BidGui:
                 self.automation.set_twenty_switch(self.twenty_switch.get())
                 self.stop_button.config(state='normal')
                 self.start_button.config(state='disabled')
+                self.infinate_button.config(state='disabled')
                 
                 # Create the async task
                 future = asyncio.run_coroutine_threadsafe(
                     self.automation.start_automation_async(
-                        self.bot_page, 
-                        self.mng_page, 
+                        self.bot_page,
+                        self.mng_page,
                         self.bot_acc.get(),
-                        self.manager_acc.get()
-                    ), 
+                        self.manager_acc.get(),
+                        1, # 1 for single bid
+                    ),
                     self.loop
                 )
                 
                 def done_callback(fut):
                     try:
                         res = fut.result()
+                        print(f"Automation result: {res}")
                         self.show_message(res)
                     except Exception as e:
                         self.show_log(f"Error in automation: {str(e)}")
                     finally:
+                        # For normal finish
                         self.stop_automation_cleanup()
                 future.add_done_callback(done_callback)
                 
@@ -233,6 +293,7 @@ class BidGui:
             self.automation.stop_automation()
             self.stop_button.config(state='disabled')
             self.start_button.config(state='normal')
+            self.infinate_button.config(state='normal')
             
     def stop_automation(self):
         self.show_log("Stopping automation... Please wait for current operation to complete.")
