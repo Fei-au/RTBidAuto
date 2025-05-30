@@ -47,11 +47,14 @@ class BidGui:
         
         self.twenty_switch = BooleanVar()
 
+
         mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
-        mainframe.grid_columnconfigure(1, weight=1)  # Message area
-        mainframe.grid_columnconfigure(2, weight=1)  # Log start column
-        mainframe.grid_columnconfigure(3, weight=1)  # Log middle column
-        mainframe.grid_columnconfigure(4, weight=1)  # Log end column
+        mainframe.grid_columnconfigure(1, weight=1)  # Left area start
+        mainframe.grid_columnconfigure(2, weight=1)
+        mainframe.grid_columnconfigure(3, weight=1)  # Left area end
+        mainframe.grid_columnconfigure(5, weight=4)  # Right area start
+        mainframe.grid_columnconfigure(6, weight=4)
+        mainframe.grid_columnconfigure(7, weight=1) 
 
         ttk.Label(mainframe, text='*Hibid Management Account').grid(column=1, row=1, sticky=W)
         manager_acc_entry = ttk.Entry(mainframe, width=30, textvariable=self.manager_acc)
@@ -101,7 +104,7 @@ class BidGui:
         
         # Scrollbar for the log area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W))
+        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W, E))
         self.log_text["yscrollcommand"] = self.scrollbar.set
         
         # Msg area setup
@@ -111,7 +114,7 @@ class BidGui:
         
         # Scrollbar for the msg area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.message.yview)
-        self.scrollbar.grid(column=4, row=151, sticky=(N, S, W))
+        self.scrollbar.grid(column=4, row=151, sticky=(N, S, W, E))
         self.message["yscrollcommand"] = self.scrollbar.set
 
         
