@@ -11,6 +11,8 @@ import os
 import traceback
 import random
 import datetime
+import time
+
 
 
 class BidGui:
@@ -21,10 +23,14 @@ class BidGui:
         self.log = None
         self.bot_page = None
         self.automation = Automation(self.show_log, self.show_message)
+        # Add variables for infinite bid
+        self.rd = 1
+        self.start = None
+        self.end = None
 
         root.title("Hibid Automation")
 
-        mainframe = ttk.Frame(root, padding=10)
+        mainframe = ttk.Frame(root, padding=5)
         mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
 
         root.columnconfigure(0, weight=1)
@@ -48,32 +54,32 @@ class BidGui:
         mainframe.grid_columnconfigure(4, weight=1)  # Log end column
 
         ttk.Label(mainframe, text='*Hibid Management Account').grid(column=1, row=1, sticky=W)
-        manager_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.manager_acc)
-        manager_acc_entry.grid(column=2, row=1, sticky=(W, E))
+        manager_acc_entry = ttk.Entry(mainframe, width=30, textvariable=self.manager_acc)
+        manager_acc_entry.grid(column=2, row=1, sticky=(W))
 
         ttk.Label(mainframe, text='*Hibid Management Password').grid(column=1, row=2, sticky=W)
-        manager_pwd_entry = ttk.Entry(mainframe, show="*", width=10, textvariable=self.manager_pwd)
-        manager_pwd_entry.grid(column=2, row=2, sticky=(W, E))
+        manager_pwd_entry = ttk.Entry(mainframe, show="*", width=30, textvariable=self.manager_pwd)
+        manager_pwd_entry.grid(column=2, row=2, sticky=(W))
 
         ttk.Label(mainframe, text='Hibit Bot Account').grid(column=1, row=3, sticky=W)
-        bot_acc_entry = ttk.Entry(mainframe, width=10, textvariable=self.bot_acc, state='disabled')
-        bot_acc_entry.grid(column=2, row=3, sticky=(W, E))
+        bot_acc_entry = ttk.Entry(mainframe, width=30, textvariable=self.bot_acc, state='disabled')
+        bot_acc_entry.grid(column=2, row=3, sticky=(W))
 
         ttk.Label(mainframe, text='Hibit Bot Password').grid(column=1, row=4, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, show="*", width=10, textvariable=self.bot_pwd, state='disabled')
-        bot_pwd_entry.grid(column=2, row=4, sticky=(W, E))
+        bot_pwd_entry = ttk.Entry(mainframe, show="*", width=30, textvariable=self.bot_pwd, state='disabled')
+        bot_pwd_entry.grid(column=2, row=4, sticky=(W))
 
         ttk.Label(mainframe, text='*Hibid Management Link').grid(column=1, row=5, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=15, textvariable=self.management_lot_link)
-        bot_pwd_entry.grid(column=2, row=5, sticky=(W, E))
+        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.management_lot_link)
+        bot_pwd_entry.grid(column=2, row=5, sticky=(W))
 
         ttk.Label(mainframe, text='*Bid Lot Link').grid(column=1, row=6, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=15, textvariable=self.bid_lot_link)
-        bot_pwd_entry.grid(column=2, row=6, sticky=(W, E))
+        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
+        bot_pwd_entry.grid(column=2, row=6, sticky=(W))  
         
         ttk.Label(mainframe, text=">100 20% switch").grid(column=1, row=7, sticky=W)
         twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
-        twenty_switch.grid(column=2, row=7, sticky=(W, E))
+        twenty_switch.grid(column=2, row=7, sticky=(W))
 
         ttk.Button(mainframe, text='1. Open Auction File', command=self.open_file).grid(ipadx=5, column=1, row=101, sticky=W)
         ttk.Button(mainframe, text='2. Login Accounts', command=self.login_accounts).grid(ipadx=5, column=2, row=101, sticky=W)
@@ -81,27 +87,32 @@ class BidGui:
         self.start_button = ttk.Button(mainframe, text='4. Start Automation', command=self.start_automation)
         self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
         self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
-        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=W)
+        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=(W, E))
         
         self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
-        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=W)
+        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W, E))
 
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=3, row=201, sticky=[W,E])
+        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=5, row=201, sticky=[W,E])
         
         # Log area setup
-        self.log_text = Text(mainframe, wrap="word", height=15)
-        self.log_text.grid(column=2, row=151, columnspan=3, sticky=(N, S, E, W))
+        self.log_text = Text(mainframe, wrap="word", height=30)
+        self.log_text.grid(column=4, row=151, columnspan=2, sticky=(N, S, E, W))
         self.log_text.config(state="disabled")  # Start as read-only
         
         # Scrollbar for the log area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=5, row=151, sticky=(N, S, W, E))
+        self.scrollbar.grid(column=7, row=151, sticky=(N, S, W))
         self.log_text["yscrollcommand"] = self.scrollbar.set
         
-        # Log area setup
-        self.message = Text(mainframe, wrap="word", width=30, height=15)
-        self.message.grid(column=1, row=151, sticky=(N, S, W, E))
+        # Msg area setup
+        self.message = Text(mainframe, wrap="word", height=30)
+        self.message.grid(column=1, row=151, columnspan=2,  sticky=(N, S, W, E))
         self.message.config(state="disabled")  # Start as read-only
+        
+        # Scrollbar for the msg area
+        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.message.yview)
+        self.scrollbar.grid(column=3, row=151, sticky=(N, S, W))
+        self.message["yscrollcommand"] = self.scrollbar.set
 
         
         # Add padding to each widget
@@ -140,7 +151,7 @@ class BidGui:
             
         
         # Set twenty switch as default
-        self.twenty_switch.set(True)
+        self.twenty_switch.set(False)
         
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
@@ -194,7 +205,6 @@ class BidGui:
                 self.show_log(f"Error in collection information: {str(e)}")
         future.add_done_callback(done_callback)
         
-        
     def infinite_bid(self):
         if not self.automation.is_running:
             self.automation.is_running = True
@@ -202,9 +212,13 @@ class BidGui:
             self.stop_button.config(state='normal')
             self.infinate_button.config(state='disabled')
             self.start_button.config(state='disabled')
-            
+            self.rd = 1
             # Create the async task
+            self.start = None
+            self.end = None
             def get_info():
+                self.start = datetime.datetime.now()
+                self.show_message(f"Starting infinite bid automation round [ {self.rd} ]...")
                 futrue_get_info = asyncio.run_coroutine_threadsafe(
                     self.automation.get_bids_info(
                         self.mng_page, 2,
@@ -217,11 +231,14 @@ class BidGui:
                         self.show_message(res)
                         if self.automation.is_running:
                             automation()
+                        else:
+                            self.clean_infinite_bid()
                     except Exception as e:
                         self.show_log(f"Error in getting bid information: {str(e)}")
                 futrue_get_info.add_done_callback(get_info_done_callback)
             
             def automation():
+                self.start = datetime.datetime.now()
                 future_automation = asyncio.run_coroutine_threadsafe(
                     self.automation.start_automation_async(
                         self.bot_page,
@@ -237,12 +254,22 @@ class BidGui:
                     try:
                         res = fut.result()
                         self.show_message(res)
+                        self.end = datetime.datetime.now()
+                        diff = round((self.end - self.start).total_seconds(), 2)
+                        self.show_message(f"Round [ {self.rd} ] completed in {diff} seconds.")
+                        self.rd += 1
                         if self.automation.is_running:
+                            if diff < 90:
+                                sleep_time = round(90 - diff, 2)
+                                self.show_message(f"Waiting for {sleep_time} seconds before next round...")
+                                time.sleep(sleep_time)
                             get_info()
+                        else:
+                            self.clean_infinite_bid()
                     except Exception as e:
                         self.show_log(f"Error in automation: {str(e)}")
                 future_automation.add_done_callback(automation_done_callback)
-                
+            
             # Start the first get_info call
             get_info()
                 
@@ -294,6 +321,11 @@ class BidGui:
             self.stop_button.config(state='disabled')
             self.start_button.config(state='normal')
             self.infinate_button.config(state='normal')
+            
+    def clean_infinite_bid(self):
+        self.rd = 1
+        self.start = None
+        self.end = None
             
     def stop_automation(self):
         self.show_log("Stopping automation... Please wait for current operation to complete.")
@@ -367,7 +399,7 @@ class BidGui:
             #     viewport=viewport,
             #     locale="en-US",
             #     timezone_id="America/New_York",
-            #     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            #     user_agent="Mozilla/5.0 (Windows NT 5.0; Win64; x64) AppleWebKit/537.36 "
             #             "(KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
             #     args=[
             #         "--start-maximized",   # Optional: starts maximized (can help mimic real user)
