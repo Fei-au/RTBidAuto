@@ -21,7 +21,7 @@ class Automation:
         self.bid_to_cust_max = 0
         self.bid_bot_win_count = 0
         self.bid_to_bot_max = 0
-        self.twenty_switch = True
+        self.twenty_switch = False
         self.is_running = False
         pass
     
@@ -237,13 +237,17 @@ class Automation:
         self.is_running = True
         
         # bid limit and bid count
+        # as per item cost around 6 seconds, one round should be finished in 90 seconds
+        # so totally 14*6=84 seconds fo bid, and 6 seconds for get lot info 
         limit = 14
         i = 0
+        start = datetime.now()
         for lot in self.lot_dict:
-            bid_info = self.lot_dict[lot]
-            if not self.is_running or (mode == 2 and i >= limit):
+            diff = (datetime.now() - start).total_seconds()
+            if not self.is_running or (mode == 2 and i >= limit) or diff > 90:
                 break
             
+            bid_info = self.lot_dict[lot]
             if pd.isna(bid_info.get("max_bid_price")):
                 continue
             
@@ -258,7 +262,7 @@ class Automation:
                             self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
                     else:
                         continue
-                elif bid_info['msrp_price'] > 100:
+                elif bid_info['msrp_price'] > 100 or not self.twenty_switch:
                     # current bid price is less than max bid price or 20% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
