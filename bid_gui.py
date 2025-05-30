@@ -87,31 +87,31 @@ class BidGui:
         self.start_button = ttk.Button(mainframe, text='4. Start Automation', command=self.start_automation)
         self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
         self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
-        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=(W, E))
+        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=(W))
         
         self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
-        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W, E))
+        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W))
 
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=5, row=201, sticky=[W,E])
+        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=7, row=201, sticky=[W,E])
         
         # Log area setup
         self.log_text = Text(mainframe, wrap="word", height=30)
-        self.log_text.grid(column=4, row=151, columnspan=2, sticky=(N, S, E, W))
+        self.log_text.grid(column=5, row=1, rowspan=151, columnspan=3, sticky=(N, S, E, W))
         self.log_text.config(state="disabled")  # Start as read-only
         
         # Scrollbar for the log area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=7, row=151, sticky=(N, S, W))
+        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W))
         self.log_text["yscrollcommand"] = self.scrollbar.set
         
         # Msg area setup
         self.message = Text(mainframe, wrap="word", height=30)
-        self.message.grid(column=1, row=151, columnspan=2,  sticky=(N, S, W, E))
+        self.message.grid(column=1, row=151, columnspan=3,  sticky=(N, S, W, E))
         self.message.config(state="disabled")  # Start as read-only
         
         # Scrollbar for the msg area
         self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.message.yview)
-        self.scrollbar.grid(column=3, row=151, sticky=(N, S, W))
+        self.scrollbar.grid(column=4, row=151, sticky=(N, S, W))
         self.message["yscrollcommand"] = self.scrollbar.set
 
         

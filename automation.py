@@ -118,7 +118,8 @@ class Automation:
             url = get_upper_level_url(page.url)
             url = url + query
         else:
-            url = page.url
+            domain = page.url.split('?')[0]
+            url = domain + query
         await page.goto(url)
         await page.wait_for_load_state('networkidle')
         # await page.select_option('#sortOrder', value="5")
@@ -284,7 +285,7 @@ class Automation:
                 else:
                     self.show_log(f'No msrp price indication for lot: {lot}')
                     continue
-                print(f'the i the lot: {i}, {lot}, {bid_info.get("max_bid_price")}')
+                print(f'the i the lot: {i+1}, {lot}, {bid_info.get("max_bid_price")}')
                 i += 1
                 await asyncio.sleep(random.random() + 1)  # Add a random delay 1-2s to simulate human behavior
             except Exception as e:
