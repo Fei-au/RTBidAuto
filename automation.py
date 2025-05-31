@@ -68,6 +68,8 @@ class Automation:
         #     await asyncio.sleep(10)
         # await page.goto(url)
         # await page.wait_for_load_state('networkidle')
+        await self.untick_refresh(page)
+        
         self.show_log(f'Login bot...')
         return
         
@@ -360,7 +362,11 @@ class Automation:
             
             # Start bid
             lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")')
-            await lot_title.get_by_label('Bid', exact=True).click()
+            bid_button = lot_title.get_by_label('Bid', exact=True)
+            if await bid_button.count() == 0:
+                self.show_log(f'Lot {lot} not found, or already closed, skipping...')
+                return 0, 'skip'
+            await bid_button.click()
             
             # Get rid of register modal for first time bid on this auction
             if not self.registered:
@@ -373,11 +379,11 @@ class Automation:
             current_bid_amount = float(bid_amount_text.replace(',', ''))
             bid_price_list = [current_bid_amount]
             
-            bid_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
+            bid_increase_button = bid_modal.get_by_label("Click to increase the bid increment", exact=True)
             # Bid to the target price
             while bid_price_list[-1] <= target_price:
                 await asyncio.sleep(random.uniform(0, 0.1))  # Add a random delay to simulate human behavior
-                await bid_button.click()
+                await bid_increase_button.click()
                 bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
                 current_bid_amount = float(bid_amount_text.replace(',', ''))
                 bid_price_list.append(current_bid_amount)
@@ -412,6 +418,18 @@ class Automation:
             await welcome_banner.get_by_label("Close", exact=True).click()
             return True
         
+    async def untick_refresh(self, page):
+        # Untick the refresh checkbox
+        refresh_container = page.locator('app-live-lot-refresh')
+        refresh_checkbox = refresh_container.locator('input[type="checkbox"]')
+        if await refresh_checkbox.count() == 0:
+            self.show_log('Refresh checkbox not found on the page')
+            return
+        if await refresh_checkbox.is_checked():
+            await refresh_checkbox.uncheck()
+            self.show_log('Unticked the refresh checkbox')
+        else:
+            self.show_log('Refresh checkbox is already unticked')
         
     # Sometimes, there is subscrition modal, we need to close it. modal role is dialog, button with text 'No thanks'
     async def clear_subscribe_modal(self, page):
