@@ -7,6 +7,8 @@ import os
 import uuid
 import traceback
 import random
+from playwright.async_api import Page
+
     
 
 class Automation:
@@ -409,7 +411,77 @@ class Automation:
             # send error to server
             # return previous_price, previous_price, 'failed'
     
-    async def filter_bidder(self, page, auction_id):
+    async def filter_bidder(self, page: Page, auction_id):
+        query = '?buyer=0&siteId=0&regsortorder=8&All=False'
+        if page.url.find('?q=') == -1:
+            url = get_upper_level_url(page.url)
+            url = url + query
+        else:
+            domain = page.url.split('?')[0]
+            url = domain + query
+        await page.goto(url)
+        
+        while self.is_filter_running:
+            register_list_tbody = page.get_by_role("rowgroup").locator('id="register-list')
+            trs = register_list_tbody.get_by_role("row")
+            count = await trs.count()
+            for i in range(count):
+                tr = trs.nth(i)
+                # 1. Check bid history total amount
+                total_bid_amount_a = tr.locator('class="lot-bid-history"')
+                ct = await total_bid_amount_a.count()
+                # The bidder hasn't bid yet
+                if ct == 0:
+                    continue
+                total_bid_amount = await total_bid_amount_a.inner_text()
+                try:
+                    float(total_bid_amount[1:-1].replace(',', ''))
+                except Exception as e:
+                    self.show_log(f'Get bidder bid history failed, skip')
+                    continue
+                # 2. If amount is larger than 200, do further investigate
+                declined_flag = False
+                if total_bid_amount > 200:
+                    await total_bid_amount_a.click()
+                    bid_history_modal = page.locator('id="bid-history-modal" modal-content')
+                    bid_history_table = bid_history_modal.get_by_role("table").locator('id="bid-history-table" tbody')
+                    bid_history_trs = bid_history_table.get_by_role('row')
+                    bid_history_trs_count = await bid_history_trs.count()
+                    high_value_bid_count = 0
+                    for j in bid_history_trs_count:
+                        bid_tr = bid_history_trs.nth(j)
+                        bid_status = await bid_tr.locator('class="bid-history-status"').inner_text()
+                        # Only check Accepted items
+                        if bid_status.find("Accepted") != -1:
+                           continue
+                        bid_max = await float(bid_tr.locator('class="bid-history-max-bid"').inner_text())
+                        if bid_max > 200:
+                            high_value_bid_count += 1
+                        else:
+                            continue
+                        if (high_value_bid_count / bid_history_trs_count) >= 0.5:
+                            declined_flag = True
+                            break
+                    # 2.1 Decline items
+                    if declined_flag:
+                        # 2.1 Decline items
+                        for j in bid_history_trs_count:
+                            pass
+                    # 2.2 Bidder pass
+                    else:
+                        pass
+                        
+                    
+                        
+
+                    
+                    
+                else:
+                    continue
+                    
+            
+            # If last bidder's reputation is still less than 20, go to next page
+            
         return "Success"
     
     async def bot_register_auction(self, page):
