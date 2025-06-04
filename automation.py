@@ -23,6 +23,9 @@ class Automation:
         self.bid_to_bot_max = 0
         self.twenty_switch = False
         self.is_running = False
+        self.is_filter_running = False
+        self.special_allowed_list = []
+        self.already_blocked_list = []
         pass
     
     def stop_automation(self):
@@ -406,6 +409,8 @@ class Automation:
             # send error to server
             # return previous_price, previous_price, 'failed'
     
+    async def filter_bidder(self, page, auction_id):
+        return "Success"
     
     async def bot_register_auction(self, page):
         modals = page.locator('app-register-auction')
