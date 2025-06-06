@@ -252,6 +252,14 @@ class BidGui:
             # Create the async task
             self.start = None
             self.end = None
+            
+            async def sleep_func(diff):
+                if diff < 90:
+                    sleep_time = round(90 - diff, 2)
+                    self.show_message(f"Waiting for {sleep_time} seconds before next auto bid round...")
+                    await asyncio.sleep(sleep_time)
+                return
+                
             def get_info():
                 self.start = datetime.datetime.now()
                 self.show_message(f"Starting infinite bid automation round [ {self.rd} ]...")
@@ -292,14 +300,16 @@ class BidGui:
                         self.show_message(res)
                         self.end = datetime.datetime.now()
                         diff = round((self.end - self.start).total_seconds(), 2)
-                        self.show_message(f"Round [ {self.rd} ] completed in {diff} seconds.")
+                        self.show_message(f"Auto bid round [ {self.rd} ] completed in {diff} seconds.")
                         self.rd += 1
                         if self.automation.is_running:
-                            if diff < 90:
-                                sleep_time = round(90 - diff, 2)
-                                self.show_message(f"Waiting for {sleep_time} seconds before next round...")
-                                time.sleep(sleep_time)
-                            get_info()
+                                sleep_future = asyncio.run_coroutine_threadsafe(
+                                    sleep_func(diff),
+                                    self.loop
+                                )
+                                def sleep_done(_):
+                                    get_info()
+                                sleep_future.add_done_callback(sleep_done)
                         else:
                             self.clean_infinite_bid()
                     except Exception as e:
