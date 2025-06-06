@@ -13,7 +13,7 @@ import random
 import datetime
 import time
 from urllib.parse import urlparse
-from tools import get_upper_level_url, save_bidder_registration, load_bidder_registration, get_auction_id
+from tools import load_bidder_registration, get_auction_id
 
 
 
@@ -64,6 +64,7 @@ class BidGui:
 
         self.manager_acc = StringVar()
         self.manager_pwd = StringVar()
+        self.allowed_list = StringVar()
 
         self.bot_acc = StringVar()
         self.bot_pwd = StringVar()
@@ -125,6 +126,12 @@ class BidGui:
         
         # Add a divider
         ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
+        
+        # Special allowed list
+        ttk.Button(mainframe, text="Load allowed bidder list", command=self.load_allowed_list).grid(ipadx=5, column=1, row=105, sticky=W)
+        allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
+        allowed_list.grid(column=2, row=105, sticky=(W))
+
         
         # Registration filter buttons
         self.start_filter = ttk.Button(mainframe, text='Start Filter Bidder', command=self.start_filter_bidder)
@@ -202,9 +209,11 @@ class BidGui:
     #     self.loop.call_soon_threadsafe(self.loop.stop)
     #     self.root.after(100, self.process_events)
     
+    
     def start_event_loop(self):
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
+    
     
     # Open file dialog to import auction export file, must have msrp_price and lot columns
     def open_file(self):
@@ -217,6 +226,7 @@ class BidGui:
             error_details = traceback.format_exc()
             self.show_log(error_details)
     
+            
     # Login manager and bot accounts
     def login_accounts(self):
         if self.check_form():
@@ -229,6 +239,7 @@ class BidGui:
                     self.show_log(f"Error in login: {str(e)}")
             future.add_done_callback(done_callback)
             
+            
     def collect_information(self):
         future = asyncio.run_coroutine_threadsafe(self.automation.get_bids_info(
             self.mng_page, 1,
@@ -240,6 +251,7 @@ class BidGui:
             except Exception as e:
                 self.show_log(f"Error in collection information: {str(e)}")
         future.add_done_callback(done_callback)
+        
         
     def infinite_bid(self):
         if not self.automation.is_running:
@@ -473,6 +485,7 @@ class BidGui:
             self.show_log(e)
             await self.browser.close()
 
+
     async def launch_context(self):
         manager_data_dir = get_local_dir() / "playwright-mng-data"
         manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
@@ -483,12 +496,15 @@ class BidGui:
     def start_filter_bidder(self):
         asyncio.run_coroutine_threadsafe(self.start_filter_bidder_async(), self.loop)
             
+            
     async def start_filter_bidder_async(self):
         if not self.automation.is_filter_running:
             self.automation.is_filter_running = True
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
             self.show_message("Starting filter bidder automation...")
+            special_allowed_list = self.allowed_list.get()
+            self.automation.special_allowed_list = special_allowed_list.replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
                 self.show_message(result)
@@ -507,6 +523,7 @@ class BidGui:
             self.stop_filter.config(state='disabled')
             self.show_message("Filter bidder automation stopped.")
 
+
     async def login_filter_bidder_async(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
@@ -520,15 +537,27 @@ class BidGui:
         await self.automation.login_manager(self.mng_bidder_page, manager_acc, manager_pwd, manager_link.replace("lotstats", "register"))
         # Load bidder registration information
         self.auction_id = get_auction_id(manager_link)
+        return "Login filter bidder success"
+
+
+    def load_allowed_list(self):
+        manager_link = self.management_lot_link.get()
+        if not manager_link:
+            self.show_message("Please input management link first")
+            return
+        print(manager_link)
+        self.auction_id = get_auction_id(manager_link)
         lists = load_bidder_registration(self.auction_id)
+        print(lists)
         if lists:
             self.automation.special_allowed_list = lists.get("special_allowed_list", [])
             self.automation.already_blocked_list = lists.get("already_blocked_list", [])
         else:
             self.automation.special_allowed_list = []
             self.automation.already_blocked_list = []
-        return "Login filter bidder success"
-
+        self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
+        self.show_message('Load allowed list success')
+        
     
     def check_form(self):
         check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' else True

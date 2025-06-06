@@ -1,5 +1,5 @@
 import asyncio
-from tools import get_upper_level_url, add_log
+from tools import get_upper_level_url, add_log, save_bidder_registration
 import pandas as pd
 from datetime import datetime
 import requests
@@ -457,7 +457,11 @@ class Automation:
                         round_continue = False
                         break
                     # Skip processed ids
-                    if bidder_id in self.special_allowed_list or bidder_id in self.already_blocked_list:
+                    if bidder_id in self.special_allowed_list:
+                        self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
+                        continue
+                    if bidder_id in self.already_blocked_list:
+                        self.show_log(f"[{bidder_id}] has already been blocked, skip")
                         continue
                     # 1. Check bid history total amount
                     total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
@@ -561,7 +565,11 @@ class Automation:
                     self.show_message(f'Waiting for {sleep_time} seconds before next filter round...')
                     await asyncio.sleep(sleep_time)
         # Log this transaction
-        # Save special and blocked list locally, add this to this transaction
+        # Save special and blocked list locally
+        self.already_blocked_list = [entry for entry in self.already_blocked_list if entry not in self.special_allowed_list]
+        save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
+        
+        # Add this to this transaction
         return f"Filter bidders successfully"
     
     async def bot_register_auction(self, page):
