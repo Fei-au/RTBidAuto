@@ -1,7 +1,7 @@
 import asyncio
 from tools import get_upper_level_url, add_log, save_bidder_registration
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import os
 import uuid
@@ -313,7 +313,7 @@ class Automation:
                     "target_price": final_bid_price,
                     "previous_price": bid_info['high_bid'],
                     "status": status,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
                 if(len(item_log) == 20):
                     data = {
@@ -341,7 +341,7 @@ class Automation:
             transaction_data = {
                                     "transaction_id": unique_id,
                                     "automation_link": self.bid_link,
-                                    "timestamp": datetime.now().isoformat(),
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
                                     "client": mng_acc,
                                     "action": "Automated Bid",
                                     "success": True,

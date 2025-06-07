@@ -4,6 +4,10 @@
 ```
 python main.py
 ```
+## Set env in powershell
+```powershell
+$env:LOG_BACK = "your_value"
+```
 ## Deploy an app
 Include browsers in .exe
 ```
