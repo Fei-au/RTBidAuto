@@ -5,8 +5,9 @@
 python main.py
 ```
 ## Set env in powershell
-If change the value in .env and restart program, the value hasn't changed, close current powershell and use a new one
+If change the value in .env and restart program, the value hasn't changed when load dotenv, close current powershell and use a new one
 ```powershell
+# Manully set env var in powershell
 $env:LOG_BACK = "your_value"
 ```
 ## Deploy an app
