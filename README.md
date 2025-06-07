@@ -5,6 +5,7 @@
 python main.py
 ```
 ## Set env in powershell
+If change the value in .env and restart program, the value hasn't changed, close current powershell and use a new one
 ```powershell
 $env:LOG_BACK = "your_value"
 ```
