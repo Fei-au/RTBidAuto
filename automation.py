@@ -259,7 +259,7 @@ class Automation:
         start = datetime.now()
         for lot in self.lot_dict:
             diff = (datetime.now() - start).total_seconds()
-            if not self.is_running or (mode == 2 and i >= limit) or diff > 90:
+            if not self.is_running or (mode == 2 and (i >= limit or diff > 90)):
                 break
             
             bid_info = self.lot_dict[lot]
