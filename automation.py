@@ -1,5 +1,5 @@
 import asyncio
-from tools import get_upper_level_url, add_log, save_bidder_registration
+from tools import get_upper_level_url, add_log, save_bidder_registration, block_bidder_log, filter_bidder_txns
 import pandas as pd
 from datetime import datetime, timezone
 import requests
@@ -418,7 +418,7 @@ class Automation:
             # send error to server
             # return previous_price, previous_price, 'failed'
     
-    async def filter_bidder(self, page: Page, auction_id):
+    async def filter_bidder(self, page: Page, auction_id, mng_acc=None, reputation=20, high_value=200, high_value_percent=0.5):
         query = '?buyer=0&siteId=0&regsortorder=8&All=False'
         if page.url.find('?q=') == -1:
             url = get_upper_level_url(page.url)
@@ -427,6 +427,9 @@ class Automation:
             domain = page.url.split('?')[0]
             url = domain + query
         filter_round = 0
+        transaction_id = str(uuid.uuid4())
+        block_count = 0
+        check_count = 0
         while self.is_filter_running:
             await page.goto(url)
             round_continue = True
@@ -452,8 +455,8 @@ class Automation:
                     # Score
                     score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
                     score = int(score_text)
-                    if score >= 20:
-                        self.show_log(f'[{bidder_id}] score is equal or larger than 20, skipping')
+                    if score >= reputation:
+                        self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
                         round_continue = False
                         break
                     # Skip processed ids
@@ -463,6 +466,7 @@ class Automation:
                     if bidder_id in self.already_blocked_list:
                         self.show_log(f"[{bidder_id}] has already been blocked, skip")
                         continue
+                    check_count += 1
                     # 1. Check bid history total amount
                     total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
                     ct = await total_bid_amount_a.count()
@@ -480,11 +484,11 @@ class Automation:
                     except Exception as e:
                         self.show_log(f'Get bidder bid history failed, skip')
                         continue
-                    # 2. If amount is larger than 200, do further investigate
+                    # 2. If amount is larger than high_value, do further investigate
                     declined_flag = False
-                    if total_bid_amount > 200:
-                        print(f'total_bid_amount is larger than 200 {total_bid_amount_text}')
-                        self.show_log(f"[{bidder_id}] total bid amount is larger than 200, futher investigating...")
+                    if total_bid_amount > high_value:
+                        print(f'total_bid_amount is larger than {high_value} {total_bid_amount_text}')
+                        self.show_log(f"[{bidder_id}] total bid amount is larger than {high_value}, futher investigating...")
                         await total_bid_amount_a.click()
                         bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
                         await page.wait_for_load_state('networkidle')
@@ -508,12 +512,12 @@ class Automation:
                             bid_history_max_bid = await bid_tr.locator('td[class="bid-history-max-bid"]').inner_text()
                             self.show_log(f'[{bidder_id}] [{lot_lead}] bid history max bid {bid_history_max_bid}')
                             bid_max = float(bid_history_max_bid)
-                            if bid_max > 200:
+                            if bid_max > high_value:
                                 high_value_bid_count += 1
                             else:
                                 continue
                         self.show_log(f'[{bidder_id}] [{lot_lead}] high value wins {high_value_bid_count}, total wins {winning_bid_count}')
-                        if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= 0.5:
+                        if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= high_value_percent:
                             declined_flag = True
                         # 2.1 Half items are over 50%, decline items
                         if declined_flag:
@@ -548,10 +552,26 @@ class Automation:
                         await profile_modal_content.get_by_label('Close').click()
                         self.already_blocked_list.append(bidder_id)
                         self.show_log(f'[{bidder_id}] profile has been blocked')
-                        # Add a log shows that the id has been blocked at which time
+                        # TODO: Add a log shows that the id has been blocked at which time
+                        block_count += 1
+                        block_data = {
+                            "transaction_id": transaction_id,
+                            "automation_link": url,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "client": mng_acc,
+                            "bidder_id": bidder_id,
+                            "status": "success",
+                            "message": "The bidder has been blocked"
+                        }
+                        try:
+                            request_res = block_bidder_log(block_data)
+                            self.show_log(f'Log: {request_res}')
+                        except Exception as e:
+                            error_details = traceback.format_exc()
+                            self.show_log(error_details)
                     else:
                         continue
-                # If last bidder's reputation is still less than 20, go to next page
+                # If last bidder's reputation is still less than reputation, go to next page
                 if round_continue and self.is_filter_running:
                     next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
                     await next_page_button.click()
@@ -564,7 +584,23 @@ class Automation:
                     sleep_time = round(90 - time_diff, 2)
                     self.show_message(f'Waiting for {sleep_time} seconds before next filter round...')
                     await asyncio.sleep(sleep_time)
-        # Log this transaction
+        # TODO: Log this transaction
+        try:
+            txns_data = {
+                "transaction_id": transaction_id,
+                "automation_link": url,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "client": mng_acc,
+                "status":"success",
+                "checked_bidder_count": check_count,
+                "blocked_bidder_count": block_count,
+                "message":"The transaction blocked"
+            }
+            request_res = filter_bidder_txns(txns_data)
+            self.show_log(f'Log: {request_res}')
+        except Exception as e:
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
         # Save special and blocked list locally
         self.already_blocked_list = [entry for entry in self.already_blocked_list if entry not in self.special_allowed_list]
         save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)

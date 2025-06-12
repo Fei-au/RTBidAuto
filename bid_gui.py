@@ -507,9 +507,14 @@ class BidGui:
             self.automation.special_allowed_list = special_allowed_list.replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
+                mng_acc = self.manager_acc.get()
+                # TODO: Add inputs to those fields and pass to filter bidder
+                # reputation = self.reputation.get()
+                # high_value = self.high_value.get()
+                # high_value_percent = self.high_value_percent.get()
                 self.show_message(result)
                 self.show_message("Start filtering...")
-                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id)
+                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc)
                 self.stop_filter_bidder()
                 self.show_message(result2)
             except Exception as e:
