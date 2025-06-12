@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import json
 import requests
+import httpx
 
 
 def get_upper_level_url(url):
@@ -73,3 +74,19 @@ def add_log(path, data):
         return response.text
     else:
         return f"Warning: {response.status_code} - {response.text}"
+    
+def filter_bidder_txns(data):
+    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/filter_bidder_txns', json=data)
+    if response.status_code == 200:
+        return response.text
+    else:
+        return f"Warning: {response.status_code} - {response.text}"
+    
+def block_bidder_log(data):
+    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/block_bidder_log', json=data)
+    if response.status_code == 200:
+        return response.text
+    else:
+        return f"Warning: {response.status_code} - {response.text}"
+    
+    
