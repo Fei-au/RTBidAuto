@@ -14,11 +14,12 @@ import time
 
 class Automation:
     
-    def __init__(self, show_log, show_message) -> None:
+    def __init__(self, show_log, show_message, update_block_list) -> None:
         self.lot_dict = None
         self.bid_link = None
         self.show_log = show_log
         self.show_message = show_message
+        self.update_block_list = update_block_list
         self.registered = False
         self.bid_cust_win_count = 0
         self.bid_to_cust_max = 0
@@ -417,6 +418,10 @@ class Automation:
             raise(e)
             # send error to server
             # return previous_price, previous_price, 'failed'
+            
+    # async def decline_items(self):
+    #     pass
+        
     
     async def filter_bidder(self, page: Page, auction_id, mng_acc=None, reputation=20, high_value=200, high_value_percent=0.5):
         query = '?buyer=0&siteId=0&regsortorder=8&All=False'
@@ -430,6 +435,7 @@ class Automation:
         transaction_id = str(uuid.uuid4())
         block_count = 0
         check_count = 0
+        # Infinate running
         while self.is_filter_running:
             await page.goto(url)
             round_continue = True
@@ -443,6 +449,7 @@ class Automation:
                 count = await trs.count()
                 self.show_log(f'Total trs in this page {count}')
                 for i in range(count):
+                    declined_flag = False
                     if not self.is_filter_running:
                         break
                     tr = trs.nth(i)
@@ -452,6 +459,15 @@ class Automation:
                     bidder_id_text = await bidder_id_ele_a.inner_text()
                     bidder_id = bidder_id_text.strip().split(' ')[0]
                     self.show_log(f"[{bidder_id}] checking...")
+                    
+                    # Bidder country
+                    bidder_profile = bidder_id_ele.locator('[class="buyer-profile"]')
+                    bidder_profile_location = await bidder_profile.locator('[class="location"]').inner_text()
+                    print(f"location is {bidder_profile_location}")
+                    if "United States" in bidder_profile_location:
+                        self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
+                        declined_flag = True
+                    
                     # Score
                     score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
                     score = int(score_text)
@@ -485,10 +501,9 @@ class Automation:
                         self.show_log(f'Get bidder bid history failed, skip')
                         continue
                     # 2. If amount is larger than high_value, do further investigate
-                    declined_flag = False
                     if total_bid_amount > high_value:
                         print(f'total_bid_amount is larger than {high_value} {total_bid_amount_text}')
-                        self.show_log(f"[{bidder_id}] total bid amount is larger than {high_value}, futher investigating...")
+                        self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
                         await total_bid_amount_a.click()
                         bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
                         await page.wait_for_load_state('networkidle')
@@ -510,35 +525,44 @@ class Automation:
                                 continue
                             winning_bid_count += 1
                             bid_history_max_bid = await bid_tr.locator('td[class="bid-history-max-bid"]').inner_text()
-                            self.show_log(f'[{bidder_id}] [{lot_lead}] bid history max bid {bid_history_max_bid}')
+                            self.show_log(f'[{bidder_id}] [lot: {lot_lead}] bid history max bid {bid_history_max_bid}')
                             bid_max = float(bid_history_max_bid)
                             if bid_max > high_value:
                                 high_value_bid_count += 1
                             else:
                                 continue
-                        self.show_log(f'[{bidder_id}] [{lot_lead}] high value wins {high_value_bid_count}, total wins {winning_bid_count}')
+                        self.show_log(f'[{bidder_id}] high value wins {high_value_bid_count}, total wins {winning_bid_count}')
                         if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= high_value_percent:
                             declined_flag = True
-                        # 2.1 Half items are over 50%, decline items
-                        if declined_flag:
-                            # 2.1 Decline items
-                            self.show_log(f'[{bidder_id}] items are being declined')
-                            for j in range(bid_history_trs_count):
-                                bid_tr = bid_history_trs.nth(j)
-                                edit_button = bid_tr.locator('button[class="bid-history-edit btn btn-primary"]')
-                                await edit_button.click()
-                                edit_modal = page.locator('div[id="edit-bid-modal"]').locator('div[class="modal-content"]')
-                                await edit_modal.get_by_role('combobox').select_option('3')
-                                edit_modal_footer = edit_modal.locator('[class="modal-footer"]')
-                                await edit_modal_footer.get_by_text('Save').click()
-                                # After click save, the whole page will reload, so wait the network
-                                await page.wait_for_load_state('networkidle')
-                            self.show_log(f'[{bidder_id}] all items are declined')
-                        # 2.2 Bidder is good, pass
-                        else:
-                            pass
-                        # Close the detail modal
                         await bid_history_modal.get_by_label('Close').click()
+                    # 2.1 Half items are over 50%, decline items
+                    if declined_flag:
+                        # 2.1 Decline items
+                        self.show_log(f'[{bidder_id}] items are being declined')
+                        await total_bid_amount_a.click()
+                        bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
+                        await page.wait_for_load_state('networkidle')
+                        await bid_history_modal.wait_for(state='visible')
+                        bid_history_table = bid_history_modal.locator('table#bid-history-table tbody')
+                        await bid_history_table.wait_for(state='visible')
+                        bid_history_trs = bid_history_table.locator('> tr')
+                        bid_history_trs_count = await bid_history_trs.count()
+                        for j in range(bid_history_trs_count):
+                            bid_tr = bid_history_trs.nth(j)
+                            edit_button = bid_tr.locator('button[class="bid-history-edit btn btn-primary"]')
+                            await edit_button.click()
+                            edit_modal = page.locator('div[id="edit-bid-modal"]').locator('div[class="modal-content"]')
+                            await edit_modal.get_by_role('combobox').select_option('3')
+                            edit_modal_footer = edit_modal.locator('[class="modal-footer"]')
+                            await edit_modal_footer.get_by_text('Save').click()
+                            # After click save, the whole page will reload, so wait the network
+                            await page.wait_for_load_state('networkidle')
+                        self.show_log(f'[{bidder_id}] all items are declined')
+                        await bid_history_modal.get_by_label('Close').click()
+                    # 2.2 Bidder is good, pass
+                    else:
+                        pass
+                    # Close the detail modal
                     # Block the bidder, add to the list        
                     if declined_flag:
                         self.show_log(f'[{bidder_id}] profile is being blocked')
@@ -551,8 +575,8 @@ class Automation:
                         await profile_saved_modal.get_by_label('Close').click()
                         await profile_modal_content.get_by_label('Close').click()
                         self.already_blocked_list.append(bidder_id)
+                        self.update_block_list(self.already_blocked_list)
                         self.show_log(f'[{bidder_id}] profile has been blocked')
-                        # TODO: Add a log shows that the id has been blocked at which time
                         block_count += 1
                         block_data = {
                             "transaction_id": transaction_id,
