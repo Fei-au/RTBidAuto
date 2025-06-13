@@ -48,7 +48,7 @@ class BidGui:
         self.bot_page = None
         self.mng_page = None
         self.auction_id = None
-        self.automation = Automation(self.show_log, self.show_message)
+        self.automation = Automation(self.show_log, self.show_message, self.update_block_list)
         # Add variables for infinite bid
         self.rd = 1
         self.start = None
@@ -65,6 +65,7 @@ class BidGui:
         self.manager_acc = StringVar()
         self.manager_pwd = StringVar()
         self.allowed_list = StringVar()
+        self.blocked_list = StringVar()
 
         self.bot_acc = StringVar()
         self.bot_pwd = StringVar()
@@ -127,14 +128,21 @@ class BidGui:
         # Add a divider
         ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
         
+        # Load processed list button
+        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=105, sticky=W)
+        
         # Special allowed list
-        ttk.Button(mainframe, text="Load allowed bidder list", command=self.load_allowed_list).grid(ipadx=5, column=1, row=105, sticky=W)
+        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=106, sticky=W)
         allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
-        allowed_list.grid(column=2, row=105, sticky=(W))
+        allowed_list.grid(column=2, row=106, sticky=(W))
 
+        # # Already block list
+        ttk.Label(mainframe, text="Blocked List").grid(column=1, row=107, sticky=W)
+        blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='disabled')
+        blocked_list.grid(column=2, row=107, sticky=(W))
         
         # Registration filter buttons
-        self.start_filter = ttk.Button(mainframe, text='Start Filter Bidder', command=self.start_filter_bidder)
+        self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
         self.start_filter.grid(ipadx=5, column=2, row=110, sticky=W)
         self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=110, sticky=(W))
@@ -401,7 +409,7 @@ class BidGui:
         
         # Disable text widget to prevent editing
         self.message.config(state="disabled")
-        
+            
     # def hide_message(self):
     #     if(self.message):
     #         # Enable text widget to insert new msg
@@ -421,6 +429,8 @@ class BidGui:
         # Disable text widget to prevent editing
         self.log_text.config(state="disabled")
     
+    def update_block_list(self, l):
+        self.blocked_list.set(','.join([str(bidder) for bidder in l]))
         
         
     async def login_accounts_async(self):
@@ -462,12 +472,6 @@ class BidGui:
 
             # )
             # self.bot_page = self.bot_browser.pages[0]
-            bot_acc = self.bot_acc.get()
-            bot_pwd = self.bot_pwd.get()
-            manager_acc = self.manager_acc.get()
-            manager_pwd = self.manager_pwd.get()
-            management_lot_link = self.management_lot_link.get()
-            bid_lot_link = self.bid_lot_link.get()
             
             await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
             if not self.mng_browser:
@@ -475,8 +479,8 @@ class BidGui:
             if not self.mng_page:
                 self.mng_page = await self.mng_browser.new_page()
             
-            await self.automation.login_manager(self.mng_page, manager_acc, manager_pwd, management_lot_link)
-            save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd, management_lot_link, bid_lot_link)
+            await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
+            self.save_info()
             return 'Login success! Please collect bid information.'
         except NavigationError as e:
             self.show_log(e)
@@ -484,6 +488,15 @@ class BidGui:
         except Exception as e:
             self.show_log(e)
             await self.browser.close()
+
+    def save_info(self):
+        bot_acc = self.bot_acc.get()
+        bot_pwd = self.bot_pwd.get()
+        manager_acc = self.manager_acc.get()
+        manager_pwd = self.manager_pwd.get()
+        management_lot_link = self.management_lot_link.get()
+        bid_lot_link = self.bid_lot_link.get()
+        save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd, management_lot_link, bid_lot_link)
 
 
     async def launch_context(self):
@@ -514,7 +527,9 @@ class BidGui:
                 # high_value_percent = self.high_value_percent.get()
                 self.show_message(result)
                 self.show_message("Start filtering...")
-                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc)
+                
+                self.save_info()                
+                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc)
                 self.stop_filter_bidder()
                 self.show_message(result2)
             except Exception as e:
@@ -545,12 +560,11 @@ class BidGui:
         return "Login filter bidder success"
 
 
-    def load_allowed_list(self):
+    def load_processed_list(self):
         manager_link = self.management_lot_link.get()
         if not manager_link:
             self.show_message("Please input management link first")
             return
-        print(manager_link)
         self.auction_id = get_auction_id(manager_link)
         lists = load_bidder_registration(self.auction_id)
         print(lists)
@@ -561,7 +575,8 @@ class BidGui:
             self.automation.special_allowed_list = []
             self.automation.already_blocked_list = []
         self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
-        self.show_message('Load allowed list success')
+        self.blocked_list.set(','.join([str(bidder) for bidder in self.automation.already_blocked_list]))
+        self.show_message('Load processed list success')
         
     
     def check_form(self):
