@@ -496,7 +496,9 @@ class Automation:
     async def block_acc(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data):
         # 2.1.1 Decline items
         await self.decline_items(bidder_id=bidder_id, page=page, total_bid_amount_a=total_bid_amount_a)
+        await asyncio.sleep(3)
         await page.wait_for_load_state('networkidle')
+        await page.locator('div.register-list-container').wait_for(state='visible')
         # 2.1.2 Block account
         await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=bidder_profile_ele)
         # 2.1.3 Send log
@@ -506,8 +508,34 @@ class Automation:
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
+
+    # Check if a bidder can be skipped, if any of followings applied, skip
+    # - bidder in special allowed list
+    # - bidder in blocked list
+    # - bidder's bidding are appending
+    # - bidder's total amount is 0, which means it hasn't bidden
+    async def skip_acc(self, bidder_id, total_bid_amount_a):
+        # Skip processed ids
+        if bidder_id in self.special_allowed_list:
+            self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
+            return True
+        if bidder_id in self.already_blocked_list:
+            self.show_log(f"[{bidder_id}] has already been blocked, skip")
+            return True
+        # 1. Check bid history total amount
+        ct = await total_bid_amount_a.count()
+        # The bidder's bidding are all pending
+        if ct == 2:
+            return True
+        total_bid_amount_div = total_bid_amount_a.locator('div')
+        total_bid_amount_div_count = await total_bid_amount_div.count()
+        # The bidder hasn't bid yet
+        if total_bid_amount_div_count == 0:
+            return True
+        
+        return False
     
-    async def filter_bidder(self, page: Page, auction_id, mng_acc=None, reputation=20, high_value=200, high_value_percent=0.5):
+    async def filter_bidder(self, page: Page, auction_id, mng_acc=None, reputation=20, high_value=200, high_value_percent=0.5, block_us_switch=True):
         query = '?buyer=0&siteId=0&regsortorder=8&All=False'
         state_query = '?buyer=0&siteId=0&regsortorder=13&All=False'
         if page.url.find('?q=') == -1:
@@ -548,7 +576,8 @@ class Automation:
                     bidder_id_text = await bidder_id_ele_a.inner_text()
                     bidder_id = bidder_id_text.strip().split(' ')[0]
                     self.show_log(f"[{bidder_id}] checking...")
-                    
+                    total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
+
                     # Score
                     score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
                     score = int(score_text)
@@ -556,25 +585,13 @@ class Automation:
                         self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
                         round_continue = False
                         break
-                    # Skip processed ids
-                    if bidder_id in self.special_allowed_list:
-                        self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
-                        continue
-                    if bidder_id in self.already_blocked_list:
-                        self.show_log(f"[{bidder_id}] has already been blocked, skip")
-                        continue
                     check_count += 1
-                    # 1. Check bid history total amount
-                    total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
-                    ct = await total_bid_amount_a.count()
-                    # The bidder's bidding are all pending
-                    if ct == 2:
+                    skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                    if skip_flag:
                         continue
+                    
+                    # Check if total bid amount larger than high value
                     total_bid_amount_div = total_bid_amount_a.locator('div')
-                    total_bid_amount_div_count = await total_bid_amount_div.count()
-                    # The bidder hasn't bid yet
-                    if total_bid_amount_div_count == 0:
-                        continue
                     total_bid_amount_text = await total_bid_amount_div.inner_text()
                     try:
                         total_bid_amount = float(total_bid_amount_text[1:-1].replace(',', ''))
@@ -583,7 +600,6 @@ class Automation:
                         continue
                     # 2. If amount is larger than high_value, do further investigate
                     if total_bid_amount > high_value:
-                        print(f'total_bid_amount is larger than {high_value} {total_bid_amount_text}')
                         self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
                         declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id, 
                                                                          page=page, 
@@ -617,67 +633,65 @@ class Automation:
                     next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
                     await next_page_button.click()
             
-            # Check 
-            await page.goto(url_state_desc)
-            round_continue = True
-            while round_continue and self.is_filter_running:
-                await page.wait_for_load_state('networkidle')
-                register_list_container = page.locator('div.register-list-container')
-                register_list_tbody = register_list_container.locator('table#register-list tbody')
-                trs = register_list_tbody.get_by_role("row")
-                count = await trs.count()
-                self.show_log(f'Total trs in this page {count}')
-                for i in range(count):
-                    declined_flag = False
-                    if not self.is_filter_running:
-                        break
-                    tr = trs.nth(i)
-                    # Bidder id
-                    bidder_profile_ele = tr.locator('td.bidder')
-                    bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
-                    bidder_id_text = await bidder_id_ele_a.inner_text()
-                    bidder_id = bidder_id_text.strip().split(' ')[0]
-                    self.show_log(f"[{bidder_id}] checking...")
-
-                    # Skip processed ids
-                    if bidder_id in self.special_allowed_list:
-                        self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
-                        continue
-                    if bidder_id in self.already_blocked_list:
-                        self.show_log(f"[{bidder_id}] has already been blocked, skip")
-                        continue
-                    
-                    # Total bid amount link
-                    total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
-                    check_count += 1
-                    # Bidder country
-                    bidder_profile = bidder_profile_ele.locator('div[class="buyer-profile collapse"]')
-                    bidder_profile_location = bidder_profile.locator('[class="location"]')
-                    location = await bidder_profile_location.inner_text()
-                    if "United States" in location:
-                        self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
-                        data = {
-                            "transaction_id": transaction_id,
-                            "automation_link": url,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "client": mng_acc,
-                            "bidder_id": bidder_id,
-                            "status": "success",
-                            "message": "The bidder has been blocked due to no shipping to the US."
-                        }
-                        await self.block_acc(bidder_id=bidder_id,
-                                       page=page,
-                                       total_bid_amount_a=total_bid_amount_a,
-                                       bidder_profile_ele=bidder_profile_ele,
-                                       data=data)
-                    else:
-                        round_continue = False
-                        break
-                # If last bidder's reputation is still less than reputation, go to next page
-                if round_continue and self.is_filter_running:
-                    next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
-                    await next_page_button.click()
+            # Check US customers
+            
+            if block_us_switch:
+                await page.goto(url_state_desc)
+                round_continue = True
+                while round_continue and self.is_filter_running:
+                    await page.wait_for_load_state('networkidle')
+                    register_list_container = page.locator('div.register-list-container')
+                    register_list_tbody = register_list_container.locator('table#register-list tbody')
+                    trs = register_list_tbody.get_by_role("row")
+                    count = await trs.count()
+                    self.show_log(f'Total trs in this page {count}')
+                    for i in range(count):
+                        declined_flag = False
+                        if not self.is_filter_running:
+                            break
+                        tr = trs.nth(i)
+                        # Bidder id
+                        bidder_profile_ele = tr.locator('td.bidder')
+                        bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+                        bidder_id_text = await bidder_id_ele_a.inner_text()
+                        bidder_id = bidder_id_text.strip().split(' ')[0]
+                        self.show_log(f"[{bidder_id}] checking...")
+                        total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
                         
+                        check_count += 1
+
+                        skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                        if skip_flag:
+                            continue
+                        
+                        # Bidder country
+                        bidder_profile = bidder_profile_ele.locator('div[class="buyer-profile collapse"]')
+                        bidder_profile_location = bidder_profile.locator('[class="location"]')
+                        location = await bidder_profile_location.inner_text()
+                        if "United States" in location:
+                            self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
+                            data = {
+                                "transaction_id": transaction_id,
+                                "automation_link": url,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "client": mng_acc,
+                                "bidder_id": bidder_id,
+                                "status": "success",
+                                "message": "The bidder has been blocked due to no shipping to the US."
+                            }
+                            await self.block_acc(bidder_id=bidder_id,
+                                        page=page,
+                                        total_bid_amount_a=total_bid_amount_a,
+                                        bidder_profile_ele=bidder_profile_ele,
+                                        data=data)
+                        else:
+                            round_continue = False
+                            break
+                    # If last bidder's reputation is still less than reputation, go to next page
+                    if round_continue and self.is_filter_running:
+                        next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
+                        await next_page_button.click()
+                            
             if self.is_filter_running:
                 end = datetime.now()
                 # Every 90 seconds a round

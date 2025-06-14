@@ -74,6 +74,7 @@ class BidGui:
         self.bid_lot_link = StringVar()
         
         self.twenty_switch = BooleanVar()
+        self.block_us_bidder_switch = BooleanVar()
 
 
         mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
@@ -129,23 +130,33 @@ class BidGui:
         ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
         
         # Load processed list button
-        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=105, sticky=W)
+        
+        filter_text = "Bidders with over 50% win items which max bid price are over 200, and reputation score lower than 20, will be blocked; and all the bid items will be declined."
+        ttk.Label(mainframe, text=filter_text, wraplength=400).grid(column=1, row=105, columnspan=2, sticky=[W])
+        
+        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=107, sticky=W)
+        
         
         # Special allowed list
-        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=106, sticky=W)
+        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=108, sticky=W)
         allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
-        allowed_list.grid(column=2, row=106, sticky=(W))
+        allowed_list.grid(column=2, row=108, sticky=(W))
 
         # # Already block list
-        ttk.Label(mainframe, text="Blocked List").grid(column=1, row=107, sticky=W)
+        ttk.Label(mainframe, text="Blocked List").grid(column=1, row=109, sticky=W)
         blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='disabled')
-        blocked_list.grid(column=2, row=107, sticky=(W))
+        blocked_list.grid(column=2, row=109, sticky=(W))
+        
+        # Block us customer switch
+        ttk.Label(mainframe, text="Blocked US bidder").grid(column=1, row=110, sticky=W)
+        block_us_bidder_switch = ttk.Checkbutton(mainframe, variable=self.block_us_bidder_switch)
+        block_us_bidder_switch.grid(column=2, row=110, sticky=(W))
         
         # Registration filter buttons
         self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
-        self.start_filter.grid(ipadx=5, column=2, row=110, sticky=W)
+        self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
         self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
-        self.stop_filter.grid(ipadx=5, column=3, row=110, sticky=(W))
+        self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
 
         # Msg area setup
         self.message = Text(mainframe, wrap="word", height=30)
@@ -204,6 +215,9 @@ class BidGui:
         
         # Set twenty switch as default
         self.twenty_switch.set(False)
+        
+        # Set block us bidder True as default
+        self.block_us_bidder_switch.set(True)
         
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
@@ -517,6 +531,7 @@ class BidGui:
             self.stop_filter.config(state='normal')
             self.show_message("Starting filter bidder automation...")
             special_allowed_list = self.allowed_list.get()
+            block_us_switch = self.block_us_bidder_switch.get()
             self.automation.special_allowed_list = special_allowed_list.replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
@@ -529,7 +544,7 @@ class BidGui:
                 self.show_message("Start filtering...")
                 
                 self.save_info()                
-                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc)
+                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
                 self.stop_filter_bidder()
                 self.show_message(result2)
             except Exception as e:
