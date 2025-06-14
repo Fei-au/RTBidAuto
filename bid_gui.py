@@ -151,6 +151,8 @@ class BidGui:
         ttk.Label(mainframe, text="Blocked US bidder").grid(column=1, row=110, sticky=W)
         block_us_bidder_switch = ttk.Checkbutton(mainframe, variable=self.block_us_bidder_switch)
         block_us_bidder_switch.grid(column=2, row=110, sticky=(W))
+        # Set block us bidder True as default
+        self.block_us_bidder_switch.set(True)
         
         # Registration filter buttons
         self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
@@ -532,7 +534,7 @@ class BidGui:
             self.show_message("Starting filter bidder automation...")
             special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
-            self.automation.special_allowed_list = special_allowed_list.replace('，', ',').split(',')
+            self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
                 mng_acc = self.manager_acc.get()
