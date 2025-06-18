@@ -496,9 +496,10 @@ class Automation:
     async def block_acc(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data):
         # 2.1.1 Decline items
         await self.decline_items(bidder_id=bidder_id, page=page, total_bid_amount_a=total_bid_amount_a)
-        await asyncio.sleep(3)
+        # After close the deline item modal, it will redirect itself,
+        await asyncio.sleep(5)
+        await page.wait_for_load_state("load")
         await page.wait_for_load_state('networkidle')
-        await page.locator('div.register-list-container').wait_for(state='visible')
         # 2.1.2 Block account
         await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=bidder_profile_ele)
         # 2.1.3 Send log
@@ -684,6 +685,7 @@ class Automation:
                                         total_bid_amount_a=total_bid_amount_a,
                                         bidder_profile_ele=bidder_profile_ele,
                                         data=data)
+                            block_count += 1
                         else:
                             round_continue = False
                             break
