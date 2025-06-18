@@ -411,8 +411,8 @@ class Automation:
             else:
                 await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
-                await page.get_by_label("Click to confirm bid", exact=True).click()
-                # await bid_modal.get_by_label("Close", exact=True).click()
+                # await page.get_by_label("Click to confirm bid", exact=True).click()
+                await bid_modal.get_by_label("Close", exact=True).click()
                 return bid_price_list[-1], 'success'
         except Exception as e:
             raise(e)
