@@ -144,7 +144,7 @@ class BidGui:
 
         # # Already block list
         ttk.Label(mainframe, text="Blocked List").grid(column=1, row=109, sticky=W)
-        blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='disabled')
+        blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='readonly')
         blocked_list.grid(column=2, row=109, sticky=(W))
         
         # Block us customer switch
