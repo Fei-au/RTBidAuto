@@ -4,10 +4,16 @@
 ```
 python main.py
 ```
+## Set env in powershell
+If change the value in .env and restart program, the value hasn't changed when load dotenv, close current powershell and use a new one
+```powershell
+# Manully set env var in powershell
+$env:LOG_BACK = "your_value"
+```
 ## Deploy an app
 Include browsers in .exe
 ```
-pyinstaller --onefile --noconsole --name="Auto Bid" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
+pyinstaller --onefile --noconsole --name="Auto Bid2.2" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
 ```
 
 

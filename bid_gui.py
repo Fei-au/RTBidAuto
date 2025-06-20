@@ -12,7 +12,28 @@ import traceback
 import random
 import datetime
 import time
+from urllib.parse import urlparse
+from tools import load_bidder_registration, get_auction_id
 
+
+
+
+'''
+1. add a start filter bidder button
+2. add a stop filter bidder button
+3. click start filter button
+4. open a tag in management browser
+5. goto registration link by replace "lotstats" with "register" in mng link
+6. replace link with query string ?buyer=0&siteId=0&regsortorder=8&All=False
+7. find bidder table tds, then iterate through each td
+8. find if 1. the bid total price is greater than 200, 2. reputation is lower than 20, 3. not in the special_allowed_list, click the td to further inspect
+9. in the detailed modal, iterate all items, if in the accepted items, 50% of them are larger than 200, then block the bidder.
+    block bidder:
+    1. declined all items that the bidder wins
+    2. back to main registration page, block the bidder
+    3. add the blocked bidder id into the already_blocked_list, so next time it won't be checked again
+10. every 1.5 minutes, repeat the process
+'''
 
 
 class BidGui:
@@ -21,8 +42,13 @@ class BidGui:
         self.registered = False
         self.message = None
         self.log = None
+        self.playwright = None
+        self.mng_browser = None
+        self.mng_bidder_page = None
         self.bot_page = None
-        self.automation = Automation(self.show_log, self.show_message)
+        self.mng_page = None
+        self.auction_id = None
+        self.automation = Automation(self.show_log, self.show_message, self.update_block_list)
         # Add variables for infinite bid
         self.rd = 1
         self.start = None
@@ -38,6 +64,8 @@ class BidGui:
 
         self.manager_acc = StringVar()
         self.manager_pwd = StringVar()
+        self.allowed_list = StringVar()
+        self.blocked_list = StringVar()
 
         self.bot_acc = StringVar()
         self.bot_pwd = StringVar()
@@ -46,6 +74,7 @@ class BidGui:
         self.bid_lot_link = StringVar()
         
         self.twenty_switch = BooleanVar()
+        self.block_us_bidder_switch = BooleanVar()
 
 
         mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
@@ -80,7 +109,7 @@ class BidGui:
         bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
         bot_pwd_entry.grid(column=2, row=6, sticky=(W))  
         
-        ttk.Label(mainframe, text=">100 20% switch").grid(column=1, row=7, sticky=W)
+        ttk.Label(mainframe, text=">100 13% switch").grid(column=1, row=7, sticky=W)
         twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
         twenty_switch.grid(column=2, row=7, sticky=(W))
 
@@ -95,18 +124,42 @@ class BidGui:
         self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
         self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W))
 
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=7, row=201, sticky=[W,E])
+        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=7, row=201, sticky=W)
         
-        # Log area setup
-        self.log_text = Text(mainframe, wrap="word", height=30)
-        self.log_text.grid(column=5, row=1, rowspan=151, columnspan=3, sticky=(N, S, E, W))
-        self.log_text.config(state="disabled")  # Start as read-only
+        # Add a divider
+        ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
         
-        # Scrollbar for the log area
-        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W, E))
-        self.log_text["yscrollcommand"] = self.scrollbar.set
+        # Load processed list button
         
+        filter_text = "Bidders with over 50% win items which max bid price are over 200, and reputation score lower than 20, will be blocked; and all the bid items will be declined."
+        ttk.Label(mainframe, text=filter_text, wraplength=400).grid(column=1, row=105, columnspan=2, sticky=[W])
+        
+        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=107, sticky=W)
+        
+        
+        # Special allowed list
+        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=108, sticky=W)
+        allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
+        allowed_list.grid(column=2, row=108, sticky=(W))
+
+        # # Already block list
+        ttk.Label(mainframe, text="Blocked List").grid(column=1, row=109, sticky=W)
+        blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='readonly')
+        blocked_list.grid(column=2, row=109, sticky=(W))
+        
+        # Block us customer switch
+        ttk.Label(mainframe, text="Blocked US bidder").grid(column=1, row=110, sticky=W)
+        block_us_bidder_switch = ttk.Checkbutton(mainframe, variable=self.block_us_bidder_switch)
+        block_us_bidder_switch.grid(column=2, row=110, sticky=(W))
+        # Set block us bidder True as default
+        self.block_us_bidder_switch.set(True)
+        
+        # Registration filter buttons
+        self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
+        self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
+        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
+        self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
+
         # Msg area setup
         self.message = Text(mainframe, wrap="word", height=30)
         self.message.grid(column=1, row=151, columnspan=3,  sticky=(N, S, W, E))
@@ -117,6 +170,15 @@ class BidGui:
         self.scrollbar.grid(column=4, row=151, sticky=(N, S, W, E))
         self.message["yscrollcommand"] = self.scrollbar.set
 
+        # Log area setup
+        self.log_text = Text(mainframe, wrap="word", height=30)
+        self.log_text.grid(column=5, row=1, rowspan=151, columnspan=3, sticky=(N, S, E, W))
+        self.log_text.config(state="disabled")  # Start as read-only
+        
+        # Scrollbar for the log area
+        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
+        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W, E))
+        self.log_text["yscrollcommand"] = self.scrollbar.set
         
         # Add padding to each widget
         for child in mainframe.winfo_children():
@@ -156,6 +218,9 @@ class BidGui:
         # Set twenty switch as default
         self.twenty_switch.set(False)
         
+        # Set block us bidder True as default
+        self.block_us_bidder_switch.set(True)
+        
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self.start_event_loop, daemon=True)
@@ -168,9 +233,11 @@ class BidGui:
     #     self.loop.call_soon_threadsafe(self.loop.stop)
     #     self.root.after(100, self.process_events)
     
+    
     def start_event_loop(self):
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
+    
     
     # Open file dialog to import auction export file, must have msrp_price and lot columns
     def open_file(self):
@@ -183,6 +250,7 @@ class BidGui:
             error_details = traceback.format_exc()
             self.show_log(error_details)
     
+            
     # Login manager and bot accounts
     def login_accounts(self):
         if self.check_form():
@@ -208,6 +276,7 @@ class BidGui:
                 self.show_log(f"Error in collection information: {str(e)}")
         future.add_done_callback(done_callback)
         
+        
     def infinite_bid(self):
         if not self.automation.is_running:
             self.automation.is_running = True
@@ -219,6 +288,14 @@ class BidGui:
             # Create the async task
             self.start = None
             self.end = None
+            
+            async def sleep_func(diff):
+                if diff < 90:
+                    sleep_time = round(90 - diff, 2)
+                    self.show_message(f"Waiting for {sleep_time} seconds before next auto bid round...")
+                    await asyncio.sleep(sleep_time)
+                return
+                
             def get_info():
                 self.start = datetime.datetime.now()
                 self.show_message(f"Starting infinite bid automation round [ {self.rd} ]...")
@@ -259,14 +336,16 @@ class BidGui:
                         self.show_message(res)
                         self.end = datetime.datetime.now()
                         diff = round((self.end - self.start).total_seconds(), 2)
-                        self.show_message(f"Round [ {self.rd} ] completed in {diff} seconds.")
+                        self.show_message(f"Auto bid round [ {self.rd} ] completed in {diff} seconds.")
                         self.rd += 1
                         if self.automation.is_running:
-                            if diff < 90:
-                                sleep_time = round(90 - diff, 2)
-                                self.show_message(f"Waiting for {sleep_time} seconds before next round...")
-                                time.sleep(sleep_time)
-                            get_info()
+                                sleep_future = asyncio.run_coroutine_threadsafe(
+                                    sleep_func(diff),
+                                    self.loop
+                                )
+                                def sleep_done(_):
+                                    get_info()
+                                sleep_future.add_done_callback(sleep_done)
                         else:
                             self.clean_infinite_bid()
                     except Exception as e:
@@ -346,7 +425,7 @@ class BidGui:
         
         # Disable text widget to prevent editing
         self.message.config(state="disabled")
-        
+            
     # def hide_message(self):
     #     if(self.message):
     #         # Enable text widget to insert new msg
@@ -366,18 +445,15 @@ class BidGui:
         # Disable text widget to prevent editing
         self.log_text.config(state="disabled")
     
+    def update_block_list(self, l):
+        self.blocked_list.set(','.join([str(bidder) for bidder in l]))
         
         
     async def login_accounts_async(self):
-        self.playwright = await async_playwright().start()
-        bot_data_dir = get_local_dir() / "playwright-bot-data"
-        manager_data_dir = get_local_dir() / "playwright-mng-data"
-        bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
-        manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
-        viewport = {
-            "width": 1980 + random.randint(0, 100),
-            "height": 1080 + random.randint(0, 100)
-        }
+        if not self.playwright:
+            self.playwright = await async_playwright().start()
+        # bot_data_dir = get_local_dir() / "playwright-bot-data"
+        # bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
         try:
             browser = await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
             # Get the first existing context or create one if none exists
@@ -412,17 +488,15 @@ class BidGui:
 
             # )
             # self.bot_page = self.bot_browser.pages[0]
-            bot_acc = self.bot_acc.get()
-            bot_pwd = self.bot_pwd.get()
-            manager_acc = self.manager_acc.get()
-            manager_pwd = self.manager_pwd.get()
             
             await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
-            self.mng_browser = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
-            self.mng_page = self.mng_browser.pages[0]
-
+            if not self.mng_browser:
+                self.mng_browser = await self.launch_context()
+            if not self.mng_page:
+                self.mng_page = await self.mng_browser.new_page()
+            
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
-            save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd, self.management_lot_link.get(), self.bid_lot_link.get())
+            self.save_info()
             return 'Login success! Please collect bid information.'
         except NavigationError as e:
             self.show_log(e)
@@ -431,6 +505,97 @@ class BidGui:
             self.show_log(e)
             await self.browser.close()
 
+    def save_info(self):
+        bot_acc = self.bot_acc.get()
+        bot_pwd = self.bot_pwd.get()
+        manager_acc = self.manager_acc.get()
+        manager_pwd = self.manager_pwd.get()
+        management_lot_link = self.management_lot_link.get()
+        bid_lot_link = self.bid_lot_link.get()
+        save_credentials(bot_acc, bot_pwd, manager_acc, manager_pwd, management_lot_link, bid_lot_link)
+
+
+    async def launch_context(self):
+        manager_data_dir = get_local_dir() / "playwright-mng-data"
+        manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
+        context = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
+        return context
+
+
+    def start_filter_bidder(self):
+        asyncio.run_coroutine_threadsafe(self.start_filter_bidder_async(), self.loop)
+            
+            
+    async def start_filter_bidder_async(self):
+        if not self.automation.is_filter_running:
+            self.automation.is_filter_running = True
+            self.start_filter.config(state='disabled')
+            self.stop_filter.config(state='normal')
+            self.show_message("Starting filter bidder automation...")
+            special_allowed_list = self.allowed_list.get()
+            block_us_switch = self.block_us_bidder_switch.get()
+            self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
+            try:
+                result = await self.login_filter_bidder_async()
+                mng_acc = self.manager_acc.get()
+                # TODO: Add inputs to those fields and pass to filter bidder
+                # reputation = self.reputation.get()
+                # high_value = self.high_value.get()
+                # high_value_percent = self.high_value_percent.get()
+                self.show_message(result)
+                self.show_message("Start filtering...")
+                
+                self.save_info()                
+                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
+                self.stop_filter_bidder()
+                self.show_message(result2)
+            except Exception as e:
+                self.show_log(f"Error in filter bidder: {str(e)}")
+            
+            
+    def stop_filter_bidder(self):
+        if self.automation.is_filter_running:
+            self.automation.is_filter_running = False
+            self.start_filter.config(state='normal')
+            self.stop_filter.config(state='disabled')
+            self.show_message("Filter bidder automation stopped.")
+
+
+    async def login_filter_bidder_async(self):
+        if not self.playwright:
+            self.playwright = await async_playwright().start()
+        if not self.mng_browser:
+            self.mng_browser = await self.launch_context()
+        if not self.mng_bidder_page:
+            self.mng_bidder_page = await self.mng_browser.new_page()
+        manager_acc = self.manager_acc.get()
+        manager_pwd = self.manager_pwd.get()
+        manager_link = self.management_lot_link.get()
+        await self.automation.login_manager(self.mng_bidder_page, manager_acc, manager_pwd, manager_link.replace("lotstats", "register"))
+        # Load bidder registration information
+        self.auction_id = get_auction_id(manager_link)
+        return "Login filter bidder success"
+
+
+    def load_processed_list(self):
+        manager_link = self.management_lot_link.get()
+        if not manager_link:
+            self.show_message("Please input management link first")
+            return
+        self.auction_id = get_auction_id(manager_link)
+        lists = load_bidder_registration(self.auction_id)
+        print(lists)
+        if lists:
+            self.automation.special_allowed_list = lists.get("special_allowed_list", [])
+            self.automation.already_blocked_list = lists.get("already_blocked_list", [])
+        else:
+            self.automation.special_allowed_list = []
+            self.automation.already_blocked_list = []
+        self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
+        self.blocked_list.set(','.join([str(bidder) for bidder in self.automation.already_blocked_list]))
+        self.show_message('Load processed list success')
+        
+    
     def check_form(self):
         check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' else True
         if not check_success:
