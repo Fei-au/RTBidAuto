@@ -279,10 +279,10 @@ class Automation:
                     else:
                         continue
                 elif bid_info['msrp_price'] > 100 or not self.twenty_switch:
-                    # current bid price is less than max bid price or 20% of msrp price, then bid
+                    # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
-                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
+                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.13, 2))
                     else:
                         target_price = bid_info['max_bid_price']
                     if bid_info['high_bid'] < target_price:
@@ -411,8 +411,8 @@ class Automation:
             else:
                 await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
-                # await page.get_by_label("Click to confirm bid", exact=True).click()
-                await bid_modal.get_by_label("Close", exact=True).click()
+                await page.get_by_label("Click to confirm bid", exact=True).click()
+                # await bid_modal.get_by_label("Close", exact=True).click()
                 return bid_price_list[-1], 'success'
         except Exception as e:
             raise(e)
@@ -497,7 +497,7 @@ class Automation:
         # 2.1.1 Decline items
         await self.decline_items(bidder_id=bidder_id, page=page, total_bid_amount_a=total_bid_amount_a)
         # After close the deline item modal, it will redirect itself,
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         await page.wait_for_load_state("load")
         await page.wait_for_load_state('networkidle')
         # 2.1.2 Block account

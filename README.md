@@ -13,7 +13,7 @@ $env:LOG_BACK = "your_value"
 ## Deploy an app
 Include browsers in .exe
 ```
-pyinstaller --onefile --noconsole --name="Auto Bid2" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
+pyinstaller --onefile --noconsole --name="Auto Bid2.2" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
 ```
 
 
