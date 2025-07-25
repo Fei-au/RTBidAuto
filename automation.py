@@ -126,7 +126,7 @@ class Automation:
             self.lot_dict[lot] = {'msrp_price': self.lot_dict[lot]['msrp_price']}
         
         if mode == 1:
-            query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
+            query = '?cat=0&hide=False&sortOrder=2&ProductStatus=0&all=True'
         elif mode == 2:
             query = '?q=&buyer=0&hide=true&SortOrder=7&ProductStatus=0&All=False'
         if page.url.find('?q=') == -1:
@@ -265,8 +265,8 @@ class Automation:
             
             bid_info = self.lot_dict[lot]
             if pd.isna(bid_info.get("max_bid_price")):
-                continue
-            
+                bid_info['max_bid_price'] = 0
+
             try:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
