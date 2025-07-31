@@ -282,7 +282,7 @@ class Automation:
                     # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
-                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
+                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.15, 2))
                     else:
                         target_price = bid_info['max_bid_price']
                     if bid_info['high_bid'] < target_price:

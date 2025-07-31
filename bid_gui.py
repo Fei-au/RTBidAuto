@@ -109,7 +109,7 @@ class BidGui:
         bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
         bot_pwd_entry.grid(column=2, row=6, sticky=(W))  
         
-        ttk.Label(mainframe, text=">100 20% switch").grid(column=1, row=7, sticky=W)
+        ttk.Label(mainframe, text=">100 15% switch").grid(column=1, row=7, sticky=W)
         twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
         twenty_switch.grid(column=2, row=7, sticky=(W))
 
