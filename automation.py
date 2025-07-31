@@ -126,7 +126,7 @@ class Automation:
             self.lot_dict[lot] = {'msrp_price': self.lot_dict[lot]['msrp_price']}
         
         if mode == 1:
-            query = '?cat=0&hide=False&sortOrder=2&ProductStatus=0&all=True'
+            query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
         elif mode == 2:
             query = '?q=&buyer=0&hide=true&SortOrder=7&ProductStatus=0&All=False'
         if page.url.find('?q=') == -1:
