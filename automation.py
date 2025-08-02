@@ -308,6 +308,7 @@ class Automation:
             except Exception as e:
                 error_details = traceback.format_exc()
                 self.show_log(error_details)
+                continue
             try:
                 item_log.append({
                     # "automation_link": self.bid_link,
