@@ -145,11 +145,11 @@ class Automation:
             () => {
                 const rows = Array.from(document.querySelectorAll('table#lot-list tbody tr'));
                 const valid_rows = rows.filter(tr => tr.querySelector('.lot-bid-max').innerText != '0.00');
-                return valid_rows.map(tr => ({
+                return rows.map(tr => ({
                     maxBid: parseFloat(tr.querySelector('.lot-bid-max').innerText.replace(',', '')),
                     highBid: parseFloat(tr.querySelector('.lot-high-bid').innerText.split(' ')[0].replace(',', '')),
                     lotNumber: tr.querySelector('.lot-number-lead.lot-link').innerText.split(' ')[0],
-                    bidder: tr.querySelector('.name-expand').innerText.split(' ')[0],
+                    bidder: tr.querySelector('.name-expand')?.innerText.split(' ')[0] || '-1',
                 }));
             }
         """)
@@ -266,16 +266,18 @@ class Automation:
             bid_info = self.lot_dict[lot]
             if pd.isna(bid_info.get("max_bid_price")):
                 bid_info['max_bid_price'] = 0
-
+                
+            final_bid_price = 0
+            status = ''
             try:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
-                    if bid_info['high_bid'] < bid_info['max_bid_price']:
+                    if bid_info.get('high_bid', 0) < bid_info['max_bid_price']:
                         final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
                         # statistics
                         if status == 'success' and final_bid_price != 0:
                             self.bid_cust_win_count += 1
-                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
+                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                     else:
                         continue
                 elif bid_info['msrp_price'] > 100 or not self.twenty_switch:
@@ -285,16 +287,16 @@ class Automation:
                         target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.15, 2))
                     else:
                         target_price = bid_info['max_bid_price']
-                    if bid_info['high_bid'] < target_price:
+                    if bid_info.get('high_bid', 0) < target_price:
                         final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
                         # statistics
                         if status == 'success' and final_bid_price != 0:
                             if(target_price == bid_info['max_bid_price']):
                                 self.bid_cust_win_count += 1
-                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
+                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                             else:
                                 self.bid_bot_win_count += 1
-                                self.bid_to_bot_max += (final_bid_price - bid_info['high_bid'])
+                                self.bid_to_bot_max += (final_bid_price - bid_info.get('high_bid', 0))
                     else:
                         continue
                 else:
@@ -312,7 +314,7 @@ class Automation:
                     "lot": lot,
                     # "client": bot_acc,
                     "target_price": final_bid_price,
-                    "previous_price": bid_info['high_bid'],
+                    "previous_price": bid_info.get('high_bid', 0),
                     "status": status,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
