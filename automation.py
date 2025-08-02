@@ -280,7 +280,7 @@ class Automation:
                             self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                     else:
                         continue
-                elif bid_info['msrp_price'] > 100 or not self.twenty_switch:
+                elif bid_info['msrp_price'] >= 100:
                     # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
