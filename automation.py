@@ -369,7 +369,7 @@ class Automation:
         self.bid_bot_win_count = 0
         self.bid_to_bot_max = 0
         return f"{unique_id} Automation finished"
-    
+        
     async def bot_bid(self, page, lot, target_price):
         try:
             await page.goto(self.bid_link + f'?q={lot}')
@@ -416,6 +416,9 @@ class Automation:
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
                 await page.get_by_label("Click to confirm bid", exact=True).click()
                 # await bid_modal.get_by_label("Close", exact=True).click()
+                
+                # Click another confirm when bid price over too much
+                await self.confirm_your_bid_modal(bid_modal)
                 return bid_price_list[-1], 'success'
         except Exception as e:
             raise(e)
@@ -766,6 +769,19 @@ class Automation:
             # The button was not visible within 4 seconds
             pass
         
+    async def confirm_your_bid_modal(self, bid_modal):
+        confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
+        confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
+        close_button = bid_modal.get_by_label("Close", exact=True)
+        try:
+            # Check if the button is visible within 4 seconds (4000 ms)
+            is_visible = await confirm_button.is_visible(timeout=500)
+            if is_visible:
+                # await close_button.click()
+                await confirm_button.click()
+        except TimeoutError:
+            # The button was not visible within 4 seconds
+            pass
 
     def file_to_lot_dict(self, filepath):
         with open(filepath, 'r') as f:
