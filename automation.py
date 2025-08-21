@@ -780,7 +780,7 @@ class Automation:
             confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
             modal_visible = await confirm_modal.is_visible(timeout=500)
             if not modal_visible:
-                return False
+                return True
         except TimeoutError:
             pass
         confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
@@ -791,7 +791,7 @@ class Automation:
             if is_visible:
                 # await close_button.click()
                 await confirm_button.click()
-                return True
+                return False
         except TimeoutError:
             pass
         # previous bid visible
