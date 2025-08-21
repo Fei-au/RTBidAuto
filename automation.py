@@ -457,7 +457,10 @@ class Automation:
     async def block_profile(self, bidder_id, page, bidder_profile_ele):
         self.show_log(f'[{bidder_id}] profile is being blocked')
         bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
-        await bidder_id_ele_a.click()
+        try:
+            await bidder_id_ele_a.click()
+        except Exception as e:
+            return
         await bidder_profile_ele.locator('a[class="bidder-profile"]').click()
         profile_modal_content = page.locator('div#bidder-profile-modal div.modal-content')
         await profile_modal_content.locator('select[name="bidder-profile-decline-reason"]').select_option('7')
@@ -512,6 +515,7 @@ class Automation:
         await asyncio.sleep(4)
         await page.wait_for_load_state("load")
         await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(3)
         # 2.1.2 Block account
         await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=bidder_profile_ele)
         # 2.1.3 Send log
