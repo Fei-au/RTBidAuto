@@ -266,7 +266,9 @@ class Automation:
             bid_info = self.lot_dict[lot]
             if pd.isna(bid_info.get("max_bid_price")):
                 bid_info['max_bid_price'] = 0
-                
+            if pd.isna(bid_info.get("msrp_price")):
+                bid_info['msrp_price'] = 0
+
             final_bid_price = 0
             status = ''
             try:
@@ -280,7 +282,8 @@ class Automation:
                             self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                     else:
                         continue
-                elif bid_info['msrp_price'] >= 100:
+                # If no msrp price, bid to max_bid_price
+                elif bid_info['msrp_price'] >= 100 or bid_info['msrp_price'] == 0:
                     # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
@@ -418,8 +421,11 @@ class Automation:
                 # await bid_modal.get_by_label("Close", exact=True).click()
                 
                 # Click another confirm when bid price over too much
-                await self.confirm_your_bid_modal(bid_modal)
-                return bid_price_list[-1], 'success'
+                confirmed = await self.confirm_your_bid_modal(bid_modal)
+                if confirmed:
+                    return bid_price_list[-1], 'success'
+                else:
+                    return target_price, 'skip'
         except Exception as e:
             raise(e)
             # send error to server
@@ -770,18 +776,37 @@ class Automation:
             pass
         
     async def confirm_your_bid_modal(self, bid_modal):
-        confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
+        try:
+            confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
+            modal_visible = await confirm_modal.is_visible(timeout=500)
+            if not modal_visible:
+                return False
+        except TimeoutError:
+            pass
         confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
         close_button = bid_modal.get_by_label("Close", exact=True)
         try:
-            # Check if the button is visible within 4 seconds (4000 ms)
+            # Check if the button is visible within (500 ms)
             is_visible = await confirm_button.is_visible(timeout=500)
             if is_visible:
                 # await close_button.click()
                 await confirm_button.click()
+                return True
         except TimeoutError:
-            # The button was not visible within 4 seconds
             pass
+        # previous bid visible
+        # previous_bid = confirm_button.get_by_text("Previous Bid", exact=True)
+        # if await previous_bid.count() > 0:
+        #     # await confirm_modal.get_by_label("Click OK to Continue", exact=True).click()
+        #     print("Previous bid is visible")
+        try:
+            close_is_visible = await close_button.is_visible(timeout=500)
+            if close_is_visible:
+                await close_button.click()
+                return False
+        except TimeoutError:
+            pass
+        return True
 
     def file_to_lot_dict(self, filepath):
         with open(filepath, 'r') as f:
