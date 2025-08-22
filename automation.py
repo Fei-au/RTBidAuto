@@ -782,7 +782,7 @@ class Automation:
     async def confirm_your_bid_modal(self, bid_modal):
         confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
         confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
-        close_button = bid_modal.get_by_label("Click OK to Continue", exact=True)
+        close_button = bid_modal.get_by_label("Close", exact=True)
         has_bid = False
         try:
             # Check if the button is visible within (500 ms)
@@ -794,9 +794,9 @@ class Automation:
             pass
         # previous bid visible
         try:
-            close_is_visible = await close_button.is_visible(timeout=500)
+            close_is_visible = await close_button.is_visible(timeout=200)
             if close_is_visible:
-                await close_button.click(timeout=100)
+                await close_button.click(timeout=200)
                 has_bid = False
         except TimeoutError:
             pass
