@@ -780,37 +780,27 @@ class Automation:
             pass
         
     async def confirm_your_bid_modal(self, bid_modal):
-        try:
-            confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
-            modal_visible = await confirm_modal.is_visible(timeout=500)
-            if not modal_visible:
-                return True
-        except TimeoutError:
-            pass
+        confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
         confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
-        close_button = bid_modal.get_by_label("Close", exact=True)
+        close_button = bid_modal.get_by_label("Click OK to Continue", exact=True)
+        has_bid = False
         try:
             # Check if the button is visible within (500 ms)
             is_visible = await confirm_button.is_visible(timeout=500)
             if is_visible:
-                # await close_button.click()
-                await confirm_button.click()
-                return False
+                await confirm_button.click(timeout=100)
+                has_bid = True
         except TimeoutError:
             pass
         # previous bid visible
-        # previous_bid = confirm_button.get_by_text("Previous Bid", exact=True)
-        # if await previous_bid.count() > 0:
-        #     # await confirm_modal.get_by_label("Click OK to Continue", exact=True).click()
-        #     print("Previous bid is visible")
         try:
             close_is_visible = await close_button.is_visible(timeout=500)
             if close_is_visible:
-                await close_button.click()
-                return False
+                await close_button.click(timeout=100)
+                has_bid = False
         except TimeoutError:
             pass
-        return True
+        return has_bid
 
     def file_to_lot_dict(self, filepath):
         with open(filepath, 'r') as f:
