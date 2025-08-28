@@ -271,10 +271,6 @@ class Automation:
             
             bid_info = self.lot_dict[lot]
             
-            if bid_info.get('skipped'):
-                self.show_log(f'Skipped lot: {lot}')
-                continue
-            
             if pd.isna(bid_info.get("max_bid_price")):
                 bid_info['max_bid_price'] = 0
             if pd.isna(bid_info.get("msrp_price")):
@@ -302,6 +298,9 @@ class Automation:
                         if bid_info.get('second_hand'):
                             multiplier = 0.08
                             self.show_log(f'Second hand detected for lot: {lot}, use {multiplier} as multiplier')
+                        if bid_info.get('skipped'):
+                            multiplier = 0
+                            self.show_log(f'lot: {lot} skipped 15%')
                         target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * multiplier, 2))
                     else:
                         target_price = bid_info['max_bid_price']
