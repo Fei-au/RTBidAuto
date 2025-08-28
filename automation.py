@@ -123,7 +123,11 @@ class Automation:
 
         # clean self.lot_dict first, only leave msrp price
         for lot in self.lot_dict:
-            self.lot_dict[lot] = {'msrp_price': self.lot_dict[lot]['msrp_price']}
+            self.lot_dict[lot] = {
+                'msrp_price': self.lot_dict[lot]['msrp_price'],
+                'skipped': self.lot_dict[lot]['skipped'],
+                'second_hand': self.lot_dict[lot]['second_hand'],
+            }
         
         if mode == 1:
             query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
@@ -171,7 +175,9 @@ class Automation:
                     'msrp_price': 0,
                     'max_bid_price': max_bid_price,
                     'bidder_id': bidder_id,
-                    'high_bid': high_bid
+                    'high_bid': high_bid,
+                    'skipped': False,
+                    'second_hand': False,
                 }
             valid_lot_count += 1
             self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
@@ -264,6 +270,11 @@ class Automation:
                 break
             
             bid_info = self.lot_dict[lot]
+            
+            if bid_info.get('skipped'):
+                self.show_log(f'Skipped lot: {lot}')
+                continue
+            
             if pd.isna(bid_info.get("max_bid_price")):
                 bid_info['max_bid_price'] = 0
             if pd.isna(bid_info.get("msrp_price")):
@@ -287,7 +298,11 @@ class Automation:
                     # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
-                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.15, 2))
+                        multiplier = 0.15
+                        if bid_info.get('second_hand'):
+                            multiplier = 0.08
+                            self.show_log(f'Second hand detected for lot: {lot}, use {multiplier} as multiplier')
+                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * multiplier, 2))
                     else:
                         target_price = bid_info['max_bid_price']
                     if bid_info.get('high_bid', 0) < target_price:
@@ -419,6 +434,7 @@ class Automation:
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
                 await page.get_by_label("Click to confirm bid", exact=True).click()
                 # await bid_modal.get_by_label("Close", exact=True).click()
+                # return 0, 'skip'
                 
                 # Click another confirm when bid price over too much
                 confirmed = await self.confirm_your_bid_modal(bid_modal)
@@ -806,5 +822,5 @@ class Automation:
         with open(filepath, 'r') as f:
             df = pd.read_csv(f)
             df['lot'] = df['lot'].astype(str)  # Convert the 'lot' column to string type
-            self.lot_dict = df.set_index('lot')['msrp_price'].apply(lambda x: {'msrp_price': x}).to_dict()
+            self.lot_dict = df.set_index('lot')[['msrp_price', 'skipped', 'second_hand']].to_dict('index')
             self.show_log(f'Totally items from uploaded file: {len(self.lot_dict)}')
