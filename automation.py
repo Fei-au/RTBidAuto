@@ -1,21 +1,25 @@
 import asyncio
-from tools import get_upper_level_url, add_log
+from tools import get_upper_level_url, add_log, save_bidder_registration, block_bidder_log, filter_bidder_txns
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import os
 import uuid
 import traceback
 import random
+from playwright.async_api import Page
+import time
+
     
 
 class Automation:
     
-    def __init__(self, show_log, show_message) -> None:
+    def __init__(self, show_log, show_message, update_block_list) -> None:
         self.lot_dict = None
         self.bid_link = None
         self.show_log = show_log
         self.show_message = show_message
+        self.update_block_list = update_block_list
         self.registered = False
         self.bid_cust_win_count = 0
         self.bid_to_cust_max = 0
@@ -23,6 +27,9 @@ class Automation:
         self.bid_to_bot_max = 0
         self.twenty_switch = False
         self.is_running = False
+        self.is_filter_running = False
+        self.special_allowed_list = []
+        self.already_blocked_list = []
         pass
     
     def stop_automation(self):
@@ -34,6 +41,12 @@ class Automation:
     def set_twenty_switch(self, twenty_switch):
         self.twenty_switch = twenty_switch
         self.show_log(f'Set twenty switch to {self.twenty_switch}')
+        
+    def log_auto_bid(self, func):
+        pass
+    
+    def log_auto_filter(self, func):
+        pass
     
     async def login_bot(self, page, bot_acc, bot_pwd, url):
         # await page.goto(url)
@@ -110,7 +123,11 @@ class Automation:
 
         # clean self.lot_dict first, only leave msrp price
         for lot in self.lot_dict:
-            self.lot_dict[lot] = {'msrp_price': self.lot_dict[lot]['msrp_price']}
+            self.lot_dict[lot] = {
+                'msrp_price': self.lot_dict[lot]['msrp_price'],
+                'skipped': self.lot_dict[lot]['skipped'],
+                'second_hand': self.lot_dict[lot]['second_hand'],
+            }
         
         if mode == 1:
             query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
@@ -132,11 +149,11 @@ class Automation:
             () => {
                 const rows = Array.from(document.querySelectorAll('table#lot-list tbody tr'));
                 const valid_rows = rows.filter(tr => tr.querySelector('.lot-bid-max').innerText != '0.00');
-                return valid_rows.map(tr => ({
+                return rows.map(tr => ({
                     maxBid: parseFloat(tr.querySelector('.lot-bid-max').innerText.replace(',', '')),
                     highBid: parseFloat(tr.querySelector('.lot-high-bid').innerText.split(' ')[0].replace(',', '')),
                     lotNumber: tr.querySelector('.lot-number-lead.lot-link').innerText.split(' ')[0],
-                    bidder: tr.querySelector('.name-expand').innerText.split(' ')[0],
+                    bidder: tr.querySelector('.name-expand')?.innerText.split(' ')[0] || '-1',
                 }));
             }
         """)
@@ -158,7 +175,9 @@ class Automation:
                     'msrp_price': 0,
                     'max_bid_price': max_bid_price,
                     'bidder_id': bidder_id,
-                    'high_bid': high_bid
+                    'high_bid': high_bid,
+                    'skipped': False,
+                    'second_hand': False,
                 }
             valid_lot_count += 1
             self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
@@ -251,37 +270,50 @@ class Automation:
                 break
             
             bid_info = self.lot_dict[lot]
-            if pd.isna(bid_info.get("max_bid_price")):
-                continue
             
+            if pd.isna(bid_info.get("max_bid_price")):
+                bid_info['max_bid_price'] = 0
+            if pd.isna(bid_info.get("msrp_price")):
+                bid_info['msrp_price'] = 0
+
+            final_bid_price = 0
+            status = ''
             try:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
-                    if bid_info['high_bid'] < bid_info['max_bid_price']:
+                    if bid_info.get('high_bid', 0) < bid_info['max_bid_price']:
                         final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
                         # statistics
                         if status == 'success' and final_bid_price != 0:
                             self.bid_cust_win_count += 1
-                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
+                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                     else:
                         continue
-                elif bid_info['msrp_price'] > 100 or not self.twenty_switch:
-                    # current bid price is less than max bid price or 20% of msrp price, then bid
+                # If no msrp price, bid to max_bid_price
+                elif bid_info['msrp_price'] >= 100 or bid_info['msrp_price'] == 0:
+                    # current bid price is less than max bid price or 13% of msrp price, then bid
                     # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
                     if self.twenty_switch:
-                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * 0.2, 2))
+                        multiplier = 0.15
+                        if bid_info.get('second_hand'):
+                            multiplier = 0.08
+                            self.show_log(f'Second hand detected for lot: {lot}, use {multiplier} as multiplier')
+                        if bid_info.get('skipped'):
+                            multiplier = 0
+                            self.show_log(f'lot: {lot} skipped 15%')
+                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * multiplier, 2))
                     else:
                         target_price = bid_info['max_bid_price']
-                    if bid_info['high_bid'] < target_price:
+                    if bid_info.get('high_bid', 0) < target_price:
                         final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
                         # statistics
                         if status == 'success' and final_bid_price != 0:
                             if(target_price == bid_info['max_bid_price']):
                                 self.bid_cust_win_count += 1
-                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info['high_bid'])
+                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                             else:
                                 self.bid_bot_win_count += 1
-                                self.bid_to_bot_max += (final_bid_price - bid_info['high_bid'])
+                                self.bid_to_bot_max += (final_bid_price - bid_info.get('high_bid', 0))
                     else:
                         continue
                 else:
@@ -293,15 +325,16 @@ class Automation:
             except Exception as e:
                 error_details = traceback.format_exc()
                 self.show_log(error_details)
+                continue
             try:
                 item_log.append({
                     # "automation_link": self.bid_link,
                     "lot": lot,
                     # "client": bot_acc,
                     "target_price": final_bid_price,
-                    "previous_price": bid_info['high_bid'],
+                    "previous_price": bid_info.get('high_bid', 0),
                     "status": status,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
                 if(len(item_log) == 20):
                     data = {
@@ -329,7 +362,7 @@ class Automation:
             transaction_data = {
                                     "transaction_id": unique_id,
                                     "automation_link": self.bid_link,
-                                    "timestamp": datetime.now().isoformat(),
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
                                     "client": mng_acc,
                                     "action": "Automated Bid",
                                     "success": True,
@@ -353,7 +386,7 @@ class Automation:
         self.bid_bot_win_count = 0
         self.bid_to_bot_max = 0
         return f"{unique_id} Automation finished"
-    
+        
     async def bot_bid(self, page, lot, target_price):
         try:
             await page.goto(self.bid_link + f'?q={lot}')
@@ -400,12 +433,330 @@ class Automation:
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
                 await page.get_by_label("Click to confirm bid", exact=True).click()
                 # await bid_modal.get_by_label("Close", exact=True).click()
-                return bid_price_list[-1], 'success'
+                # return 0, 'skip'
+                
+                # Click another confirm when bid price over too much
+                confirmed = await self.confirm_your_bid_modal(bid_modal)
+                if confirmed:
+                    return bid_price_list[-1], 'success'
+                else:
+                    return target_price, 'skip'
         except Exception as e:
             raise(e)
             # send error to server
             # return previous_price, previous_price, 'failed'
+            
+    async def decline_items(self, bidder_id, page, total_bid_amount_a):
+        self.show_log(f'[{bidder_id}] items are being declined')
+        await total_bid_amount_a.click()
+        bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
+        await page.wait_for_load_state('networkidle')
+        await bid_history_modal.wait_for(state='visible')
+        bid_history_table = bid_history_modal.locator('table#bid-history-table tbody')
+        await bid_history_table.wait_for(state='visible')
+        bid_history_trs = bid_history_table.locator('> tr')
+        bid_history_trs_count = await bid_history_trs.count()
+        for j in range(bid_history_trs_count):
+            bid_tr = bid_history_trs.nth(j)
+            edit_button = bid_tr.locator('button[class="bid-history-edit btn btn-primary"]')
+            await edit_button.click()
+            edit_modal = page.locator('div[id="edit-bid-modal"]').locator('div[class="modal-content"]')
+            await edit_modal.get_by_role('combobox').select_option('3')
+            edit_modal_footer = edit_modal.locator('[class="modal-footer"]')
+            await edit_modal_footer.get_by_text('Save').click()
+            # After click save, the whole page will reload, so wait the network
+            await page.wait_for_load_state('networkidle')
+        self.show_log(f'[{bidder_id}] all items have been declined')
+        await bid_history_modal.get_by_label('Close').click()
+        
+    async def block_profile(self, bidder_id, page, bidder_profile_ele):
+        self.show_log(f'[{bidder_id}] profile is being blocked')
+        bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+        try:
+            await bidder_id_ele_a.click()
+        except Exception as e:
+            return
+        await bidder_profile_ele.locator('a[class="bidder-profile"]').click()
+        profile_modal_content = page.locator('div#bidder-profile-modal div.modal-content')
+        await profile_modal_content.locator('select[name="bidder-profile-decline-reason"]').select_option('7')
+        await profile_modal_content.locator('button[id="bidder-profile-save"]').click()
+        profile_saved_modal = page.locator('div[id="bidder-profile-saved-modal"]')
+        await profile_saved_modal.get_by_label('Close').click()
+        await profile_modal_content.get_by_label('Close').click()
+        self.already_blocked_list.append(bidder_id)
+        self.update_block_list(self.already_blocked_list)
+        self.show_log(f'[{bidder_id}] profile has been blocked')
+        
+    async def is_win_item_half_high_value(self, bidder_id, page, total_bid_amount_a, high_value, high_value_percent):
+        await total_bid_amount_a.click()
+        bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
+        await page.wait_for_load_state('networkidle')
+        await bid_history_modal.wait_for(state='visible')
+        bid_history_table = bid_history_modal.locator('table#bid-history-table tbody')
+        await bid_history_table.wait_for(state='visible')
+        bid_history_trs = bid_history_table.locator('> tr')
+        bid_history_trs_count = await bid_history_trs.count()
+        self.show_log(f'[{bidder_id}] total items {bid_history_trs_count}')
+        high_value_bid_count = 0
+        winning_bid_count = 0
+        for j in range(bid_history_trs_count):
+            bid_tr = bid_history_trs.nth(j)
+            lot_lead = (await bid_tr.locator('span[class="lot-lead"]').inner_text()).split('-')[0]
+            # Only check Winning items
+            bid_status = bid_tr.locator('td[class="bid-history-status hidden-xs text-center"]')
+            bid_winning_count = await bid_status.locator('div.bid-status-winning:not([class*=" "])').count()
+            if bid_winning_count == 0:
+                continue
+            winning_bid_count += 1
+            bid_history_max_bid = await bid_tr.locator('td[class="bid-history-max-bid"]').inner_text()
+            self.show_log(f'[{bidder_id}] [lot: {lot_lead}] bid history max bid {bid_history_max_bid}')
+            bid_max = float(bid_history_max_bid)
+            if bid_max > high_value:
+                high_value_bid_count += 1
+            else:
+                continue
+        self.show_log(f'[{bidder_id}] high value wins {high_value_bid_count}, total wins {winning_bid_count}')
+        await bid_history_modal.get_by_label('Close').click()
+        if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= high_value_percent:
+            return True
+        else:
+            return False
+        
+    # This includes decline all items and block the account
+    async def block_acc(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data):
+        # 2.1.1 Decline items
+        await self.decline_items(bidder_id=bidder_id, page=page, total_bid_amount_a=total_bid_amount_a)
+        # After close the deline item modal, it will redirect itself,
+        await asyncio.sleep(4)
+        await page.wait_for_load_state("load")
+        await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(3)
+        # 2.1.2 Block account
+        await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=bidder_profile_ele)
+        # 2.1.3 Send log
+        try:
+            request_res = block_bidder_log(data)
+            self.show_log(f'Log: {request_res}')
+        except Exception as e:
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
+
+    # Check if a bidder can be skipped, if any of followings applied, skip
+    # - bidder in special allowed list
+    # - bidder in blocked list
+    # - bidder's bidding are appending
+    # - bidder's total amount is 0, which means it hasn't bidden
+    async def skip_acc(self, bidder_id, total_bid_amount_a):
+        # Skip processed ids
+        if bidder_id in self.special_allowed_list:
+            self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
+            return True
+        if bidder_id in self.already_blocked_list:
+            self.show_log(f"[{bidder_id}] has already been blocked, skip")
+            return True
+        # 1. Check bid history total amount
+        ct = await total_bid_amount_a.count()
+        # The bidder's bidding are all pending
+        if ct == 2:
+            return True
+        total_bid_amount_div = total_bid_amount_a.locator('div')
+        total_bid_amount_div_count = await total_bid_amount_div.count()
+        # The bidder hasn't bid yet
+        if total_bid_amount_div_count == 0:
+            return True
+        
+        return False
     
+    async def filter_bidder(self, page: Page, auction_id, mng_acc=None, reputation=20, high_value=200, high_value_percent=0.5, block_us_switch=True):
+        query = '?buyer=0&siteId=0&regsortorder=8&All=False'
+        state_query = '?buyer=0&siteId=0&regsortorder=13&All=False'
+        if page.url.find('?q=') == -1:
+            upper_url = get_upper_level_url(page.url)
+            url = upper_url + query
+            url_state_desc = upper_url + state_query
+        else:
+            domain = page.url.split('?')[0]
+            url = domain + query
+            url_state_desc = domain + state_query
+        filter_round = 0
+        transaction_id = str(uuid.uuid4())
+        block_count = 0
+        check_count = 0
+        # Infinate running
+        while self.is_filter_running:
+            await page.goto(url)
+            round_continue = True
+            start = datetime.now()
+            filter_round += 1
+            
+            # Check score under 20
+            while round_continue and self.is_filter_running:
+                await page.wait_for_load_state('networkidle')
+                register_list_container = page.locator('div.register-list-container')
+                register_list_tbody = register_list_container.locator('table#register-list tbody')
+                trs = register_list_tbody.get_by_role("row")
+                count = await trs.count()
+                self.show_log(f'Total trs in this page {count}')
+                for i in range(count):
+                    declined_flag = False
+                    if not self.is_filter_running:
+                        break
+                    tr = trs.nth(i)
+                    # Bidder id
+                    bidder_profile_ele = tr.locator('td.bidder')
+                    bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+                    bidder_id_text = await bidder_id_ele_a.inner_text()
+                    bidder_id = bidder_id_text.strip().split(' ')[0]
+                    self.show_log(f"[{bidder_id}] checking...")
+                    total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
+
+                    # Score
+                    score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
+                    score = int(score_text)
+                    if score >= reputation:
+                        self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
+                        round_continue = False
+                        break
+                    check_count += 1
+                    skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                    if skip_flag:
+                        continue
+                    
+                    # Check if total bid amount larger than high value
+                    total_bid_amount_div = total_bid_amount_a.locator('div')
+                    total_bid_amount_text = await total_bid_amount_div.inner_text()
+                    try:
+                        total_bid_amount = float(total_bid_amount_text[1:-1].replace(',', ''))
+                    except Exception as e:
+                        self.show_log(f'Get bidder bid history failed, skip')
+                        continue
+                    # 2. If amount is larger than high_value, do further investigate
+                    if total_bid_amount > high_value:
+                        self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
+                        declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id, 
+                                                                         page=page, 
+                                                                         total_bid_amount_a=total_bid_amount_a, 
+                                                                         high_value=high_value, 
+                                                                         high_value_percent=high_value_percent
+                                                                         )
+                        
+                    # 2.1 Half items are over 50%, decline items
+                    # Block the bidder, add to the list
+                    if declined_flag:
+                        data = {
+                            "transaction_id": transaction_id,
+                            "automation_link": url,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "client": mng_acc,
+                            "bidder_id": bidder_id,
+                            "status": "success",
+                            "message": "The bidder has been blocked"
+                        }
+                        await self.block_acc(bidder_id=bidder_id,
+                                       page=page,
+                                       total_bid_amount_a=total_bid_amount_a,
+                                       bidder_profile_ele=bidder_profile_ele,
+                                       data=data)
+                        block_count += 1
+                    else:
+                        continue
+                # If last bidder's reputation is still less than reputation, go to next page
+                if round_continue and self.is_filter_running:
+                    next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
+                    await next_page_button.click()
+            
+            # Check US customers
+            
+            if block_us_switch:
+                await page.goto(url_state_desc)
+                round_continue = True
+                while round_continue and self.is_filter_running:
+                    await page.wait_for_load_state('networkidle')
+                    register_list_container = page.locator('div.register-list-container')
+                    register_list_tbody = register_list_container.locator('table#register-list tbody')
+                    trs = register_list_tbody.get_by_role("row")
+                    count = await trs.count()
+                    self.show_log(f'Total trs in this page {count}')
+                    for i in range(count):
+                        declined_flag = False
+                        if not self.is_filter_running:
+                            break
+                        tr = trs.nth(i)
+                        # Bidder id
+                        bidder_profile_ele = tr.locator('td.bidder')
+                        bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+                        bidder_id_text = await bidder_id_ele_a.inner_text()
+                        bidder_id = bidder_id_text.strip().split(' ')[0]
+                        self.show_log(f"[{bidder_id}] checking...")
+                        total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
+                        
+                        check_count += 1
+
+                        skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                        if skip_flag:
+                            continue
+                        
+                        # Bidder country
+                        bidder_profile = bidder_profile_ele.locator('div[class="buyer-profile collapse"]')
+                        bidder_profile_location = bidder_profile.locator('[class="location"]')
+                        location = await bidder_profile_location.inner_text()
+                        if "United States" in location:
+                            self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
+                            data = {
+                                "transaction_id": transaction_id,
+                                "automation_link": url,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "client": mng_acc,
+                                "bidder_id": bidder_id,
+                                "status": "success",
+                                "message": "The bidder has been blocked due to no shipping to the US."
+                            }
+                            await self.block_acc(bidder_id=bidder_id,
+                                        page=page,
+                                        total_bid_amount_a=total_bid_amount_a,
+                                        bidder_profile_ele=bidder_profile_ele,
+                                        data=data)
+                            block_count += 1
+                        else:
+                            round_continue = False
+                            break
+                    # If last bidder's reputation is still less than reputation, go to next page
+                    if round_continue and self.is_filter_running:
+                        next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
+                        await next_page_button.click()
+                            
+            if self.is_filter_running:
+                end = datetime.now()
+                # Every 90 seconds a round
+                time_diff = round((end - start).total_seconds(), 2)
+                if time_diff < 90:
+                    self.show_message(f'Filter bidders round [ {filter_round} ] completed in {time_diff} seconds')
+                    sleep_time = round(90 - time_diff, 2)
+                    self.show_message(f'Waiting for {sleep_time} seconds before next filter round...')
+                    await asyncio.sleep(sleep_time)
+        # TODO: Log this transaction
+        try:
+            txns_data = {
+                "transaction_id": transaction_id,
+                "automation_link": url,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "client": mng_acc,
+                "status":"success",
+                "checked_bidder_count": check_count,
+                "blocked_bidder_count": block_count,
+                "message":"The transaction blocked"
+            }
+            request_res = filter_bidder_txns(txns_data)
+            self.show_log(f'Log: {request_res}')
+        except Exception as e:
+            error_details = traceback.format_exc()
+            self.show_log(error_details)
+        # Save special and blocked list locally
+        self.already_blocked_list = [entry for entry in self.already_blocked_list if entry not in self.special_allowed_list]
+        save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
+        
+        # Add this to this transaction
+        return f"Filter bidders successfully"
     
     async def bot_register_auction(self, page):
         modals = page.locator('app-register-auction')
@@ -443,10 +794,32 @@ class Automation:
             # The button was not visible within 4 seconds
             pass
         
+    async def confirm_your_bid_modal(self, bid_modal):
+        confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
+        confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
+        close_button = bid_modal.get_by_label("Close", exact=True)
+        has_bid = False
+        try:
+            # Check if the button is visible within (500 ms)
+            is_visible = await confirm_button.is_visible(timeout=500)
+            if is_visible:
+                await confirm_button.click(timeout=100)
+                has_bid = True
+        except TimeoutError:
+            pass
+        # previous bid visible
+        try:
+            close_is_visible = await close_button.is_visible(timeout=200)
+            if close_is_visible:
+                await close_button.click(timeout=200)
+                has_bid = False
+        except TimeoutError:
+            pass
+        return has_bid
 
     def file_to_lot_dict(self, filepath):
         with open(filepath, 'r') as f:
             df = pd.read_csv(f)
             df['lot'] = df['lot'].astype(str)  # Convert the 'lot' column to string type
-            self.lot_dict = df.set_index('lot')['msrp_price'].apply(lambda x: {'msrp_price': x}).to_dict()
+            self.lot_dict = df.set_index('lot')[['msrp_price', 'skipped', 'second_hand']].to_dict('index')
             self.show_log(f'Totally items from uploaded file: {len(self.lot_dict)}')

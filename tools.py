@@ -1,9 +1,9 @@
-
 from urllib.parse import urlparse, urlunparse
 import os
 from pathlib import Path
 import json
 import requests
+import httpx
 
 
 def get_upper_level_url(url):
@@ -31,6 +31,7 @@ app_data_path = Path(os.getenv('LOCALAPPDATA')) / "AutoBid"
 app_data_path.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
 credentials_file = app_data_path / "credentials.json"
     
+    
 def load_credentials():
     if credentials_file.exists():
         with open(credentials_file, 'r') as file:
@@ -40,6 +41,26 @@ def load_credentials():
 def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd, mng_link, bid_link):
     with open(credentials_file, 'w') as file:
         json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd, "MNG_LINK": mng_link, "BID_LINK": bid_link}, file)
+
+def save_bidder_registration(auction_id: int, special_allowed_list: list, already_blocked_list: list):
+    with open(app_data_path / f'bidder_registration_{auction_id}.json', 'w') as file:
+        json.dump({"special_allowed_list": special_allowed_list, "already_blocked_list": already_blocked_list}, file)
+        
+def load_bidder_registration(auction_id: int):
+    file_path = app_data_path / f'bidder_registration_{str(auction_id)}.json'
+    if file_path.exists():
+        with open(file_path, 'r') as file:
+            return json.load(file)
+    return None
+
+
+def get_auction_id(mng_link):
+    link = get_upper_level_url(mng_link)
+    parsed = urlparse(link)
+    path_parts = parsed.path.rstrip('/').split('/')
+    auction_id = path_parts[-1] if path_parts else ''
+    return auction_id
+    
 
 def get_local_dir():
     return app_data_path
@@ -53,3 +74,19 @@ def add_log(path, data):
         return response.text
     else:
         return f"Warning: {response.status_code} - {response.text}"
+    
+def filter_bidder_txns(data):
+    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/filter_bidder_txns', json=data)
+    if response.status_code == 200:
+        return response.text
+    else:
+        return f"Warning: {response.status_code} - {response.text}"
+    
+def block_bidder_log(data):
+    response = requests.post(f'{os.getenv("LOG_BACK")}/logs/block_bidder_log', json=data)
+    if response.status_code == 200:
+        return response.text
+    else:
+        return f"Warning: {response.status_code} - {response.text}"
+    
+    
