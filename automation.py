@@ -458,7 +458,7 @@ class Automation:
         bid_history_trs_count = await bid_history_trs.count()
         for j in range(bid_history_trs_count):
             bid_tr = bid_history_trs.nth(j)
-            edit_button = bid_tr.locator('button[class="bid-history-edit btn btn-primary"]')
+            edit_button = bid_tr.locator('button.bid-history-edit.btn')
             await edit_button.click()
             edit_modal = page.locator('div[id="edit-bid-modal"]').locator('div[class="modal-content"]')
             await edit_modal.get_by_role('combobox').select_option('3')
