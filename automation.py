@@ -541,6 +541,30 @@ class Automation:
             error_details = traceback.format_exc()
             self.show_log(error_details)
 
+    # Wraps block_acc so that if the post-decline page refresh stalls or lands on
+    # an empty page, we recover by force-navigating to refresh_url. Returns True
+    # on normal completion, False if recovery was triggered (caller should
+    # re-enumerate the current page rather than click Next).
+    async def block_acc_safe(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data, refresh_url):
+        try:
+            await self.block_acc(bidder_id=bidder_id,
+                                 page=page,
+                                 total_bid_amount_a=total_bid_amount_a,
+                                 bidder_profile_ele=bidder_profile_ele,
+                                 data=data)
+            return True
+        except Exception as e:
+            error_details = traceback.format_exc()
+            self.show_log(f'[{bidder_id}] block_acc failed, force-refreshing page')
+            self.show_log(error_details)
+            try:
+                await page.goto(refresh_url)
+                await page.wait_for_load_state('networkidle')
+                self.show_log(f'[{bidder_id}] page force-refreshed to {refresh_url}')
+            except Exception:
+                self.show_log(f'[{bidder_id}] force-refresh failed: {traceback.format_exc()}')
+            return False
+
     # Check if a bidder can be skipped, if any of followings applied, skip
     # - bidder in special allowed list
     # - bidder in blocked list
@@ -652,11 +676,15 @@ class Automation:
                             "status": "success",
                             "message": "The bidder has been blocked"
                         }
-                        await self.block_acc(bidder_id=bidder_id,
+                        success = await self.block_acc_safe(bidder_id=bidder_id,
                                        page=page,
                                        total_bid_amount_a=total_bid_amount_a,
                                        bidder_profile_ele=bidder_profile_ele,
-                                       data=data)
+                                       data=data,
+                                       refresh_url=url)
+                        if not success:
+                            # Page was force-refreshed; skip this entry, move on
+                            continue
                         block_count += 1
                     else:
                         continue
@@ -711,11 +739,15 @@ class Automation:
                                 "status": "success",
                                 "message": "The bidder has been blocked due to no shipping to the US."
                             }
-                            await self.block_acc(bidder_id=bidder_id,
+                            success = await self.block_acc_safe(bidder_id=bidder_id,
                                         page=page,
                                         total_bid_amount_a=total_bid_amount_a,
                                         bidder_profile_ele=bidder_profile_ele,
-                                        data=data)
+                                        data=data,
+                                        refresh_url=url_state_desc)
+                            if not success:
+                                # Page was force-refreshed; skip this entry, move on
+                                continue
                             block_count += 1
                         else:
                             round_continue = False
