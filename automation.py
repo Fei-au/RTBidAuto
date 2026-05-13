@@ -462,6 +462,9 @@ class Automation:
             await edit_button.click()
             edit_modal = page.locator('div[id="edit-bid-modal"]').locator('div[class="modal-content"]')
             await edit_modal.get_by_role('combobox').select_option('3')
+            confirm_input = edit_modal.locator('input#ConfirmText')
+            if await confirm_input.count() > 0 and await confirm_input.is_visible():
+                await confirm_input.fill('CONFIRM')
             edit_modal_footer = edit_modal.locator('[class="modal-footer"]')
             await edit_modal_footer.get_by_text('Save').click()
             # After click save, the whole page will reload, so wait the network
