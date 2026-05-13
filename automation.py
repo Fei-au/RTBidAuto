@@ -541,6 +541,36 @@ class Automation:
             error_details = traceback.format_exc()
             self.show_log(error_details)
 
+    # Force-navigate to refresh_url and wait for it to settle. Used as a recovery
+    # path when row processing throws (stale DOM, blank page after a block, etc.).
+    async def _force_refresh_page(self, page, refresh_url, context=''):
+        prefix = f'{context} ' if context else ''
+        try:
+            await page.goto(refresh_url)
+            await page.wait_for_load_state('networkidle')
+            self.show_log(f'{prefix}page force-refreshed to {refresh_url}')
+        except Exception:
+            self.show_log(f'{prefix}force-refresh failed: {traceback.format_exc()}')
+
+    # Wraps block_acc so that if the post-decline page refresh stalls or lands on
+    # an empty page, we recover by force-navigating to refresh_url. Returns True
+    # on normal completion, False if recovery was triggered (caller should
+    # re-enumerate the current page rather than click Next).
+    async def block_acc_safe(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data, refresh_url):
+        try:
+            await self.block_acc(bidder_id=bidder_id,
+                                 page=page,
+                                 total_bid_amount_a=total_bid_amount_a,
+                                 bidder_profile_ele=bidder_profile_ele,
+                                 data=data)
+            return True
+        except Exception as e:
+            error_details = traceback.format_exc()
+            self.show_log(f'[{bidder_id}] block_acc failed, force-refreshing page')
+            self.show_log(error_details)
+            await self._force_refresh_page(page, refresh_url, context=f'[{bidder_id}]')
+            return False
+
     # Check if a bidder can be skipped, if any of followings applied, skip
     # - bidder in special allowed list
     # - bidder in blocked list
@@ -601,64 +631,75 @@ class Automation:
                     declined_flag = False
                     if not self.is_filter_running:
                         break
-                    tr = trs.nth(i)
-                    # Bidder id
-                    bidder_profile_ele = tr.locator('td.bidder')
-                    bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
-                    bidder_id_text = await bidder_id_ele_a.inner_text()
-                    bidder_id = bidder_id_text.strip().split(' ')[0]
-                    self.show_log(f"[{bidder_id}] checking...")
-                    total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
-
-                    # Score
-                    score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
-                    score = int(score_text)
-                    if score >= reputation:
-                        self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
-                        round_continue = False
-                        break
-                    check_count += 1
-                    skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
-                    if skip_flag:
-                        continue
-                    
-                    # Check if total bid amount larger than high value
-                    total_bid_amount_div = total_bid_amount_a.locator('div')
-                    total_bid_amount_text = await total_bid_amount_div.inner_text()
                     try:
-                        total_bid_amount = float(total_bid_amount_text[1:-1].replace(',', ''))
-                    except Exception as e:
-                        self.show_log(f'Get bidder bid history failed, skip')
-                        continue
-                    # 2. If amount is larger than high_value, do further investigate
-                    if total_bid_amount > high_value:
-                        self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
-                        declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id, 
-                                                                         page=page, 
-                                                                         total_bid_amount_a=total_bid_amount_a, 
-                                                                         high_value=high_value, 
-                                                                         high_value_percent=high_value_percent
-                                                                         )
-                        
-                    # 2.1 Half items are over 50%, decline items
-                    # Block the bidder, add to the list
-                    if declined_flag:
-                        data = {
-                            "transaction_id": transaction_id,
-                            "automation_link": url,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "client": mng_acc,
-                            "bidder_id": bidder_id,
-                            "status": "success",
-                            "message": "The bidder has been blocked"
-                        }
-                        await self.block_acc(bidder_id=bidder_id,
-                                       page=page,
-                                       total_bid_amount_a=total_bid_amount_a,
-                                       bidder_profile_ele=bidder_profile_ele,
-                                       data=data)
-                        block_count += 1
-                    else:
+                        tr = trs.nth(i)
+                        # Bidder id
+                        bidder_profile_ele = tr.locator('td.bidder')
+                        bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+                        bidder_id_text = await bidder_id_ele_a.inner_text()
+                        bidder_id = bidder_id_text.strip().split(' ')[0]
+                        self.show_log(f"[{bidder_id}] checking...")
+                        total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
+
+                        # Score
+                        score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
+                        score = int(score_text)
+                        if score >= reputation:
+                            self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
+                            round_continue = False
+                            break
+                        check_count += 1
+                        skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                        if skip_flag:
+                            continue
+
+                        # Check if total bid amount larger than high value
+                        total_bid_amount_div = total_bid_amount_a.locator('div')
+                        total_bid_amount_text = await total_bid_amount_div.inner_text()
+                        try:
+                            total_bid_amount = float(total_bid_amount_text[1:-1].replace(',', ''))
+                        except Exception as e:
+                            self.show_log(f'Get bidder bid history failed, skip')
+                            continue
+                        # 2. If amount is larger than high_value, do further investigate
+                        if total_bid_amount > high_value:
+                            self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
+                            declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id,
+                                                                             page=page,
+                                                                             total_bid_amount_a=total_bid_amount_a,
+                                                                             high_value=high_value,
+                                                                             high_value_percent=high_value_percent
+                                                                             )
+
+                        # 2.1 Half items are over 50%, decline items
+                        # Block the bidder, add to the list
+                        if declined_flag:
+                            data = {
+                                "transaction_id": transaction_id,
+                                "automation_link": url,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "client": mng_acc,
+                                "bidder_id": bidder_id,
+                                "status": "success",
+                                "message": "The bidder has been blocked"
+                            }
+                            success = await self.block_acc_safe(bidder_id=bidder_id,
+                                           page=page,
+                                           total_bid_amount_a=total_bid_amount_a,
+                                           bidder_profile_ele=bidder_profile_ele,
+                                           data=data,
+                                           refresh_url=url)
+                            if not success:
+                                # Page was force-refreshed; skip this entry, move on
+                                continue
+                            block_count += 1
+                        else:
+                            continue
+                    except Exception:
+                        error_details = traceback.format_exc()
+                        self.show_log(f'Row {i} processing failed, force-refreshing page')
+                        self.show_log(error_details)
+                        await self._force_refresh_page(page, url, context=f'[row {i}]')
                         continue
                 # If last bidder's reputation is still less than reputation, go to next page
                 if round_continue and self.is_filter_running:
@@ -681,45 +722,56 @@ class Automation:
                         declined_flag = False
                         if not self.is_filter_running:
                             break
-                        tr = trs.nth(i)
-                        # Bidder id
-                        bidder_profile_ele = tr.locator('td.bidder')
-                        bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
-                        bidder_id_text = await bidder_id_ele_a.inner_text()
-                        bidder_id = bidder_id_text.strip().split(' ')[0]
-                        self.show_log(f"[{bidder_id}] checking...")
-                        total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
-                        
-                        check_count += 1
+                        try:
+                            tr = trs.nth(i)
+                            # Bidder id
+                            bidder_profile_ele = tr.locator('td.bidder')
+                            bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
+                            bidder_id_text = await bidder_id_ele_a.inner_text()
+                            bidder_id = bidder_id_text.strip().split(' ')[0]
+                            self.show_log(f"[{bidder_id}] checking...")
+                            total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
 
-                        skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
-                        if skip_flag:
+                            check_count += 1
+
+                            skip_flag = await self.skip_acc(bidder_id=bidder_id, total_bid_amount_a=total_bid_amount_a)
+                            if skip_flag:
+                                continue
+
+                            # Bidder country
+                            bidder_profile = bidder_profile_ele.locator('div[class="buyer-profile collapse"]')
+                            bidder_profile_location = bidder_profile.locator('[class="location"]')
+                            location = await bidder_profile_location.inner_text()
+                            if "United States" in location:
+                                self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
+                                data = {
+                                    "transaction_id": transaction_id,
+                                    "automation_link": url,
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "client": mng_acc,
+                                    "bidder_id": bidder_id,
+                                    "status": "success",
+                                    "message": "The bidder has been blocked due to no shipping to the US."
+                                }
+                                success = await self.block_acc_safe(bidder_id=bidder_id,
+                                            page=page,
+                                            total_bid_amount_a=total_bid_amount_a,
+                                            bidder_profile_ele=bidder_profile_ele,
+                                            data=data,
+                                            refresh_url=url_state_desc)
+                                if not success:
+                                    # Page was force-refreshed; skip this entry, move on
+                                    continue
+                                block_count += 1
+                            else:
+                                round_continue = False
+                                break
+                        except Exception:
+                            error_details = traceback.format_exc()
+                            self.show_log(f'Row {i} processing failed, force-refreshing page')
+                            self.show_log(error_details)
+                            await self._force_refresh_page(page, url_state_desc, context=f'[row {i}]')
                             continue
-                        
-                        # Bidder country
-                        bidder_profile = bidder_profile_ele.locator('div[class="buyer-profile collapse"]')
-                        bidder_profile_location = bidder_profile.locator('[class="location"]')
-                        location = await bidder_profile_location.inner_text()
-                        if "United States" in location:
-                            self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
-                            data = {
-                                "transaction_id": transaction_id,
-                                "automation_link": url,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                                "client": mng_acc,
-                                "bidder_id": bidder_id,
-                                "status": "success",
-                                "message": "The bidder has been blocked due to no shipping to the US."
-                            }
-                            await self.block_acc(bidder_id=bidder_id,
-                                        page=page,
-                                        total_bid_amount_a=total_bid_amount_a,
-                                        bidder_profile_ele=bidder_profile_ele,
-                                        data=data)
-                            block_count += 1
-                        else:
-                            round_continue = False
-                            break
                     # If last bidder's reputation is still less than reputation, go to next page
                     if round_continue and self.is_filter_running:
                         next_page_button = register_list_container.locator('div#register-list_paginate ul li').get_by_text('Next')
