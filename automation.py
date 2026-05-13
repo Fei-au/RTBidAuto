@@ -543,6 +543,7 @@ class Automation:
 
     # Force-navigate to refresh_url and wait for it to settle. Used as a recovery
     # path when row processing throws (stale DOM, blank page after a block, etc.).
+    # Retries when the site bounces to an internal-error page or goto throws.
     async def _force_refresh_page(self, page, refresh_url, context='', max_attempts=5):
         prefix = f'{context} ' if context else ''
         for attempt in range(1, max_attempts + 1):
