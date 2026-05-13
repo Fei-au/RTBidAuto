@@ -543,14 +543,24 @@ class Automation:
 
     # Force-navigate to refresh_url and wait for it to settle. Used as a recovery
     # path when row processing throws (stale DOM, blank page after a block, etc.).
-    async def _force_refresh_page(self, page, refresh_url, context=''):
+    # Retries when the site bounces to an internal-error page or goto throws.
+    async def _force_refresh_page(self, page, refresh_url, context='', max_attempts=5):
         prefix = f'{context} ' if context else ''
-        try:
-            await page.goto(refresh_url)
-            await page.wait_for_load_state('networkidle')
-            self.show_log(f'{prefix}page force-refreshed to {refresh_url}')
-        except Exception:
-            self.show_log(f'{prefix}force-refresh failed: {traceback.format_exc()}')
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await page.goto(refresh_url)
+                await page.wait_for_load_state('networkidle')
+                landed = (page.url or '').lower()
+                if 'internalerror' in landed or 'error' in landed:
+                    self.show_log(f'{prefix}force-refresh attempt {attempt}/{max_attempts} landed on error page: {page.url}')
+                else:
+                    self.show_log(f'{prefix}page force-refreshed to {refresh_url}')
+                    return True
+            except Exception:
+                self.show_log(f'{prefix}force-refresh attempt {attempt}/{max_attempts} failed: {traceback.format_exc()}')
+            await asyncio.sleep(min(2 ** attempt, 30))
+        self.show_log(f'{prefix}force-refresh gave up after {max_attempts} attempts')
+        return False
 
     # Wraps block_acc so that if the post-decline page refresh stalls or lands on
     # an empty page, we recover by force-navigating to refresh_url. Returns True
