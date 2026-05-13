@@ -627,7 +627,7 @@ class Automation:
         check_count = 0
         # Infinate running
         while self.is_filter_running:
-            await page.goto(url)
+            await self._force_refresh_page(page, url, context='[score round]')
             round_continue = True
             start = datetime.now()
             filter_round += 1
@@ -722,7 +722,7 @@ class Automation:
             # Check US customers
             
             if block_us_switch:
-                await page.goto(url_state_desc)
+                await self._force_refresh_page(page, url_state_desc, context='[us round]')
                 round_continue = True
                 while round_continue and self.is_filter_running:
                     await page.wait_for_load_state('networkidle')
