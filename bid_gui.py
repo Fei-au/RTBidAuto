@@ -104,7 +104,7 @@ class BidGui:
         main_paned = ttk.PanedWindow(root, orient='horizontal')
         main_paned.pack(fill=BOTH, expand=True, padx=12, pady=(0, 6))
 
-        left_container = ttk.Frame(main_paned, style='Card.TFrame')
+        left_container = ttk.Frame(main_paned)
         main_paned.add(left_container, weight=3)
         notebook = ttk.Notebook(left_container)
         notebook.pack(fill=BOTH, expand=True, padx=2, pady=2)
@@ -215,13 +215,42 @@ class BidGui:
         ttk.Separator(root, orient='horizontal').pack(fill=X)
 
     def _build_bid_tab(self, notebook):
-        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        tab = ttk.Frame(notebook, padding=14)
         notebook.add(tab, text='  Auto Bid  ')
         tab.columnconfigure(0, weight=1)
 
+        # Prerequisite: launch Chrome with remote debugging + log in manually
+        prereq = ttk.Labelframe(tab, text=' Before you start (Login bypass) ',
+                                style='Section.TLabelframe', padding=12)
+        prereq.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        prereq.columnconfigure(0, weight=1)
+
+        ttk.Label(prereq,
+                  text='Before clicking "2. Login Accounts", launch Chrome with remote '
+                       'debugging and log in manually on the auctioneer subdomain '
+                       '(e.g. company.bid.com, NOT www.bid.com).',
+                  style='Hint.TLabel', wraplength=560).grid(row=0, column=0, columnspan=2,
+                                                            sticky=W, pady=(0, 6))
+
+        cmd_row = ttk.Frame(prereq)
+        cmd_row.grid(row=1, column=0, columnspan=2, sticky=(W, E))
+        cmd_row.columnconfigure(0, weight=1)
+
+        self._chrome_cmd = (
+            '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
+            '--remote-debugging-port=9222 '
+            '--user-data-dir="C:\\chrome-dev-profile"'
+        )
+        cmd_var = StringVar(value=self._chrome_cmd)
+        cmd_entry = ttk.Entry(cmd_row, textvariable=cmd_var, state='readonly',
+                              font=('Consolas', 9))
+        cmd_entry.grid(row=0, column=0, sticky=(W, E), padx=(0, 6))
+        ttk.Button(cmd_row, text='Copy', width=8,
+                   command=self._copy_chrome_cmd).grid(row=0, column=1)
+
         # Accounts group
         acc = ttk.Labelframe(tab, text=' Accounts ', style='Section.TLabelframe', padding=12)
-        acc.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        acc.grid(row=1, column=0, sticky=(W, E), pady=(0, 10))
         acc.columnconfigure(1, weight=1)
 
         self._add_field(acc, 0, 'Management Account *', self.manager_acc)
@@ -231,7 +260,7 @@ class BidGui:
 
         # Links group
         links = ttk.Labelframe(tab, text=' Auction Links ', style='Section.TLabelframe', padding=12)
-        links.grid(row=1, column=0, sticky=(W, E), pady=(0, 10))
+        links.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
         links.columnconfigure(1, weight=1)
 
         self._add_field(links, 0, 'Management Link *', self.management_lot_link)
@@ -239,7 +268,7 @@ class BidGui:
 
         # Options
         opts = ttk.Labelframe(tab, text=' Options ', style='Section.TLabelframe', padding=12)
-        opts.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
+        opts.grid(row=3, column=0, sticky=(W, E), pady=(0, 10))
         opts.columnconfigure(1, weight=1)
         ttk.Checkbutton(opts, text='>$100 lots: use 15% of MSRP as floor',
                         variable=self.twenty_switch,
@@ -251,7 +280,7 @@ class BidGui:
 
         # Actions
         actions = ttk.Labelframe(tab, text=' Workflow ', style='Section.TLabelframe', padding=12)
-        actions.grid(row=3, column=0, sticky=(W, E))
+        actions.grid(row=4, column=0, sticky=(W, E))
         for c in range(4):
             actions.columnconfigure(c, weight=1, uniform='btn')
 
@@ -278,7 +307,7 @@ class BidGui:
         self.stop_button.grid(row=1, column=2, padx=4, pady=4, sticky=(W, E))
 
     def _build_filter_tab(self, notebook):
-        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        tab = ttk.Frame(notebook, padding=14)
         notebook.add(tab, text='  Bidder Filter  ')
         tab.columnconfigure(0, weight=1)
 
@@ -321,7 +350,7 @@ class BidGui:
         self.stop_filter.grid(row=0, column=2, padx=4, pady=4, sticky=(W, E))
 
     def _build_risky_tab(self, notebook):
-        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        tab = ttk.Frame(notebook, padding=14)
         notebook.add(tab, text='  Risk Scan  ')
         tab.columnconfigure(0, weight=1)
 
@@ -410,6 +439,14 @@ class BidGui:
     def _set_status(self, text):
         try:
             self.status_var.set(text)
+        except Exception:
+            pass
+
+    def _copy_chrome_cmd(self):
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self._chrome_cmd)
+            self._set_status('Chrome command copied to clipboard')
         except Exception:
             pass
 
