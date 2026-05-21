@@ -93,8 +93,8 @@ class BidGui:
         self.last_action_var = StringVar(value='')
 
         root.title("Hibid Automation")
-        root.geometry("1320x820")
-        root.minsize(1080, 660)
+        root.geometry("1320x880")
+        root.minsize(1080, 740)
 
         self._init_styles()
         self._build_menu(root)
@@ -220,32 +220,25 @@ class BidGui:
         tab.columnconfigure(0, weight=1)
 
         # Prerequisite: launch Chrome with remote debugging + log in manually
-        prereq = ttk.Labelframe(tab, text=' Before you start (Login bypass) ',
-                                style='Section.TLabelframe', padding=12)
-        prereq.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        prereq = ttk.Labelframe(
+            tab,
+            text=' Before "Login Accounts": run this Chrome cmd, then log in manually on company.bid.com ',
+            style='Section.TLabelframe', padding=8)
+        prereq.grid(row=0, column=0, sticky=(W, E), pady=(0, 8))
         prereq.columnconfigure(0, weight=1)
-
-        ttk.Label(prereq,
-                  text='Before clicking "2. Login Accounts", launch Chrome with remote '
-                       'debugging and log in manually on the auctioneer subdomain '
-                       '(e.g. company.bid.com, NOT www.bid.com).',
-                  style='Hint.TLabel', wraplength=560).grid(row=0, column=0, columnspan=2,
-                                                            sticky=W, pady=(0, 6))
-
-        cmd_row = ttk.Frame(prereq)
-        cmd_row.grid(row=1, column=0, columnspan=2, sticky=(W, E))
-        cmd_row.columnconfigure(0, weight=1)
 
         self._chrome_cmd = (
             '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
             '--remote-debugging-port=9222 '
             '--user-data-dir="C:\\chrome-dev-profile"'
         )
-        cmd_var = StringVar(value=self._chrome_cmd)
-        cmd_entry = ttk.Entry(cmd_row, textvariable=cmd_var, state='readonly',
-                              font=('Consolas', 9))
+        # Keep StringVar on self so it isn't GC'd after this method returns
+        # (which would silently empty the readonly Entry).
+        self._chrome_cmd_var = StringVar(value=self._chrome_cmd)
+        cmd_entry = ttk.Entry(prereq, textvariable=self._chrome_cmd_var,
+                              state='readonly', font=('Consolas', 9))
         cmd_entry.grid(row=0, column=0, sticky=(W, E), padx=(0, 6))
-        ttk.Button(cmd_row, text='Copy', width=8,
+        ttk.Button(prereq, text='Copy', width=8,
                    command=self._copy_chrome_cmd).grid(row=0, column=1)
 
         # Accounts group
