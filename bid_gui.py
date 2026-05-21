@@ -18,14 +18,16 @@ from tools import load_bidder_registration, get_auction_id
 from risky_scan import RiskyScanner
 import csv
 
+try:
+    import sv_ttk
+    _HAS_SV_TTK = True
+except ImportError:
+    _HAS_SV_TTK = False
 
-# Colors (light theme, Windows-style)
-COLOR_BG = "#f3f3f3"
-COLOR_PANEL = "#ffffff"
-COLOR_BORDER = "#d0d0d0"
-COLOR_TEXT_BG = "#fcfcfc"
-COLOR_TEXT_FG = "#1f1f1f"
-COLOR_HEADER_FG = "#1f1f1f"
+# Sun Valley light palette (matches sv-ttk light theme)
+COLOR_TEXT_BG = "#fafafa"
+COLOR_TEXT_FG = "#1a1a1a"
+COLOR_BORDER = "#d1d1d1"
 COLOR_SUBTLE_FG = "#5a5a5a"
 COLOR_ACCENT = "#0067c0"
 
@@ -91,9 +93,8 @@ class BidGui:
         self.last_action_var = StringVar(value='')
 
         root.title("Hibid Automation")
-        root.geometry("1280x780")
-        root.minsize(1040, 640)
-        root.configure(bg=COLOR_BG)
+        root.geometry("1320x820")
+        root.minsize(1080, 660)
 
         self._init_styles()
         self._build_menu(root)
@@ -136,49 +137,45 @@ class BidGui:
     # ---------- UI scaffolding ----------
 
     def _init_styles(self):
-        style = ttk.Style()
-        for theme in ('vista', 'xpnative', 'winnative', 'clam'):
-            if theme in style.theme_names():
-                try:
-                    style.theme_use(theme)
-                    break
-                except Exception:
-                    continue
+        if _HAS_SV_TTK:
+            sv_ttk.set_theme('light')
+        else:
+            fallback = ttk.Style()
+            for theme in ('vista', 'xpnative', 'winnative', 'clam'):
+                if theme in fallback.theme_names():
+                    try:
+                        fallback.theme_use(theme)
+                        break
+                    except Exception:
+                        continue
 
+        style = ttk.Style()
         base_family = 'Segoe UI'
         try:
-            default_font = tkfont.nametofont('TkDefaultFont')
-            default_font.configure(family=base_family, size=9)
-            text_font = tkfont.nametofont('TkTextFont')
-            text_font.configure(family=base_family, size=9)
+            for fname in ('TkDefaultFont', 'TkTextFont', 'TkHeadingFont',
+                          'TkMenuFont', 'TkIconFont'):
+                f = tkfont.nametofont(fname)
+                f.configure(family=base_family, size=10)
         except Exception:
             pass
 
-        style.configure('App.TFrame', background=COLOR_BG)
-        style.configure('Card.TFrame', background=COLOR_PANEL)
-        style.configure('Header.TFrame', background=COLOR_PANEL)
-        style.configure('Status.TFrame', background='#e8e8e8')
-
-        style.configure('Title.TLabel', background=COLOR_PANEL,
-                        foreground=COLOR_HEADER_FG, font=(base_family, 14, 'bold'))
-        style.configure('Subtitle.TLabel', background=COLOR_PANEL,
-                        foreground=COLOR_SUBTLE_FG, font=(base_family, 9))
-        style.configure('Section.TLabelframe', background=COLOR_PANEL,
-                        borderwidth=1, relief='solid')
-        style.configure('Section.TLabelframe.Label', background=COLOR_PANEL,
-                        foreground=COLOR_ACCENT, font=(base_family, 9, 'bold'))
-        style.configure('Hint.TLabel', background=COLOR_PANEL,
-                        foreground=COLOR_SUBTLE_FG, font=(base_family, 8))
-        style.configure('Field.TLabel', background=COLOR_PANEL,
-                        foreground=COLOR_HEADER_FG, font=(base_family, 9))
-        style.configure('Status.TLabel', background='#e8e8e8',
-                        foreground='#333333', font=(base_family, 9))
-        style.configure('StatusAccent.TLabel', background='#e8e8e8',
-                        foreground=COLOR_ACCENT, font=(base_family, 9, 'bold'))
-        style.configure('TNotebook', background=COLOR_BG, borderwidth=0)
-        style.configure('TNotebook.Tab', padding=(18, 8), font=(base_family, 9))
-        style.configure('TCheckbutton', background=COLOR_PANEL)
-        style.configure('Accent.TButton', font=(base_family, 9, 'bold'))
+        # Only configure what we add on top of sv-ttk's defaults — leave
+        # backgrounds alone so the theme's coherent palette wins.
+        style.configure('Title.TLabel', font=(base_family, 18, 'bold'))
+        style.configure('Subtitle.TLabel', font=(base_family, 10),
+                        foreground=COLOR_SUBTLE_FG)
+        style.configure('Hint.TLabel', font=(base_family, 9),
+                        foreground=COLOR_SUBTLE_FG)
+        style.configure('Field.TLabel', font=(base_family, 10))
+        style.configure('Status.TLabel', font=(base_family, 9),
+                        foreground=COLOR_SUBTLE_FG)
+        style.configure('StatusAccent.TLabel', font=(base_family, 9, 'bold'),
+                        foreground=COLOR_ACCENT)
+        style.configure('Section.TLabelframe.Label',
+                        font=(base_family, 10, 'bold'),
+                        foreground=COLOR_ACCENT)
+        style.configure('TNotebook.Tab', padding=(22, 10),
+                        font=(base_family, 10))
 
     def _build_menu(self, root):
         menubar = Menu(root)
@@ -388,7 +385,8 @@ class BidGui:
         return text
 
     def _build_statusbar(self, root):
-        bar = ttk.Frame(root, style='Status.TFrame', padding=(12, 4))
+        ttk.Separator(root, orient='horizontal').pack(fill=X, side=BOTTOM)
+        bar = ttk.Frame(root, padding=(14, 6))
         bar.pack(fill=X, side=BOTTOM)
 
         ttk.Label(bar, text='Status:', style='Status.TLabel').pack(side=LEFT)

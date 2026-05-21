@@ -15,10 +15,10 @@ Env vars are loaded from `.env` via `python-dotenv`. Relevant keys: `LOG_BACK` (
 PyInstaller one-file with bundled Playwright browsers:
 
 ```powershell
-pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
+pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" --collect-data sv_ttk main.py
 ```
 
-`main.py` rewires `PLAYWRIGHT_BROWSERS_PATH` to the bundled folder when frozen (`sys._MEIPASS`).
+`main.py` rewires `PLAYWRIGHT_BROWSERS_PATH` to the bundled folder when frozen (`sys._MEIPASS`). `--collect-data sv_ttk` bundles the Sun Valley theme's `sv.tcl` and image assets — without it the frozen exe falls back to native ttk (the [bid_gui.py](bid_gui.py) import is wrapped in try/except).
 
 ## Architecture
 
