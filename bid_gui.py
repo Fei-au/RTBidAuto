@@ -1,6 +1,7 @@
 from tkinter import *
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import font as tkfont
 from playwright.async_api import async_playwright
 import threading
 import asyncio
@@ -16,6 +17,17 @@ from urllib.parse import urlparse
 from tools import load_bidder_registration, get_auction_id
 from risky_scan import RiskyScanner
 import csv
+
+
+# Colors (light theme, Windows-style)
+COLOR_BG = "#f3f3f3"
+COLOR_PANEL = "#ffffff"
+COLOR_BORDER = "#d0d0d0"
+COLOR_TEXT_BG = "#fcfcfc"
+COLOR_TEXT_FG = "#1f1f1f"
+COLOR_HEADER_FG = "#1f1f1f"
+COLOR_SUBTLE_FG = "#5a5a5a"
+COLOR_ACCENT = "#0067c0"
 
 
 
@@ -41,6 +53,7 @@ import csv
 class BidGui:
 
     def __init__(self, root) -> None:
+        self.root = root
         self.registered = False
         self.message = None
         self.log = None
@@ -51,34 +64,21 @@ class BidGui:
         self.mng_page = None
         self.auction_id = None
         self.automation = Automation(self.show_log, self.show_message, self.update_block_list)
-        # Add variables for infinite bid
         self.rd = 1
         self.start = None
         self.end = None
-
-        root.title("Hibid Automation")
-
-        mainframe = ttk.Frame(root, padding=5)
-        mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
-
-        root.columnconfigure(0, weight=1)
-        root.rowconfigure(0, weight=1)
 
         self.manager_acc = StringVar()
         self.manager_pwd = StringVar()
         self.allowed_list = StringVar()
         self.blocked_list = StringVar()
-
         self.bot_acc = StringVar()
         self.bot_pwd = StringVar()
-
         self.management_lot_link = StringVar()
         self.bid_lot_link = StringVar()
-
         self.twenty_switch = BooleanVar()
         self.block_us_bidder_switch = BooleanVar()
 
-        # Risky bidder scan
         self.risky_scanner = RiskyScanner(self.show_log, self.show_message)
         self.risky_lotstat_page = None
         self.risky_register_page = None
@@ -86,190 +86,354 @@ class BidGui:
         self.risky_high_bid_threshold = StringVar(value='50')
         self.risky_score_threshold = StringVar(value='20')
 
+        self.status_var = StringVar(value='Ready')
+        self.round_var = StringVar(value='')
+        self.last_action_var = StringVar(value='')
 
-        mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
-        mainframe.grid_columnconfigure(1, weight=1)  # Left area start
-        mainframe.grid_columnconfigure(2, weight=1)
-        mainframe.grid_columnconfigure(3, weight=1)  # Left area end
-        mainframe.grid_columnconfigure(5, weight=4)  # Right area start
-        mainframe.grid_columnconfigure(6, weight=4)
-        mainframe.grid_columnconfigure(7, weight=1)
+        root.title("Hibid Automation")
+        root.geometry("1280x780")
+        root.minsize(1040, 640)
+        root.configure(bg=COLOR_BG)
 
-        ttk.Label(mainframe, text='*Hibid Management Account').grid(column=1, row=1, sticky=W)
-        manager_acc_entry = ttk.Entry(mainframe, width=30, textvariable=self.manager_acc)
-        manager_acc_entry.grid(column=2, row=1, sticky=(W))
+        self._init_styles()
+        self._build_menu(root)
+        self._build_header(root)
+        self._build_statusbar(root)
 
-        ttk.Label(mainframe, text='*Hibid Management Password').grid(column=1, row=2, sticky=W)
-        manager_pwd_entry = ttk.Entry(mainframe, show="*", width=30, textvariable=self.manager_pwd)
-        manager_pwd_entry.grid(column=2, row=2, sticky=(W))
+        main_paned = ttk.PanedWindow(root, orient='horizontal')
+        main_paned.pack(fill=BOTH, expand=True, padx=12, pady=(0, 6))
 
-        ttk.Label(mainframe, text='Hibit Bot Account').grid(column=1, row=3, sticky=W)
-        bot_acc_entry = ttk.Entry(mainframe, width=30, textvariable=self.bot_acc, state='disabled')
-        bot_acc_entry.grid(column=2, row=3, sticky=(W))
+        left_container = ttk.Frame(main_paned, style='Card.TFrame')
+        main_paned.add(left_container, weight=3)
+        notebook = ttk.Notebook(left_container)
+        notebook.pack(fill=BOTH, expand=True, padx=2, pady=2)
 
-        ttk.Label(mainframe, text='Hibit Bot Password').grid(column=1, row=4, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, show="*", width=30, textvariable=self.bot_pwd, state='disabled')
-        bot_pwd_entry.grid(column=2, row=4, sticky=(W))
+        self._build_bid_tab(notebook)
+        self._build_filter_tab(notebook)
+        self._build_risky_tab(notebook)
 
-        ttk.Label(mainframe, text='*Hibid Management Link').grid(column=1, row=5, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.management_lot_link)
-        bot_pwd_entry.grid(column=2, row=5, sticky=(W))
+        right_container = ttk.Frame(main_paned)
+        main_paned.add(right_container, weight=2)
+        self._build_right_panel(right_container)
 
-        ttk.Label(mainframe, text='*Bid Lot Link').grid(column=1, row=6, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
-        bot_pwd_entry.grid(column=2, row=6, sticky=(W))
-
-        ttk.Label(mainframe, text=">100 15% switch").grid(column=1, row=7, sticky=W)
-        twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
-        twenty_switch.grid(column=2, row=7, sticky=(W))
-
-        ttk.Button(mainframe, text='1. Open Auction File', command=self.open_file).grid(ipadx=5, column=1, row=101, sticky=W)
-        ttk.Button(mainframe, text='2. Login Accounts', command=self.login_accounts).grid(ipadx=5, column=2, row=101, sticky=W)
-        ttk.Button(mainframe, text='3. Collect Information', command=self.collect_information).grid(ipadx=5, column=1, row=102, sticky=W)
-        self.start_button = ttk.Button(mainframe, text='4. Start Automation', command=self.start_automation)
-        self.start_button.grid(ipadx=5, column=2, row=102, sticky=W)
-        self.stop_button = ttk.Button(mainframe, text='Stop Automation', command=self.stop_automation, state='disabled')
-        self.stop_button.grid(ipadx=5, column=3, row=102, sticky=(W))
-
-        self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
-        self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W))
-
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=7, row=201, sticky=W)
-
-        # Add a divider
-        ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
-
-        # Load processed list button
-
-        filter_text = "Bidders with over 50% win items which max bid price are over 200, and reputation score lower than 20, will be blocked; and all the bid items will be declined."
-        ttk.Label(mainframe, text=filter_text, wraplength=400).grid(column=1, row=105, columnspan=2, sticky=[W])
-
-        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=107, sticky=W)
-
-
-        # Special allowed list
-        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=108, sticky=W)
-        allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
-        allowed_list.grid(column=2, row=108, sticky=(W))
-
-        # # Already block list
-        ttk.Label(mainframe, text="Blocked List").grid(column=1, row=109, sticky=W)
-        blocked_list = ttk.Entry(mainframe, width=30, textvariable=self.blocked_list, state='readonly')
-        blocked_list.grid(column=2, row=109, sticky=(W))
-
-        # Block us customer switch
-        ttk.Label(mainframe, text="Blocked US bidder").grid(column=1, row=110, sticky=W)
-        block_us_bidder_switch = ttk.Checkbutton(mainframe, variable=self.block_us_bidder_switch)
-        block_us_bidder_switch.grid(column=2, row=110, sticky=(W))
-        # Set block us bidder True as default
-        self.block_us_bidder_switch.set(True)
-
-        # Registration filter buttons
-        self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
-        self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
-        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
-        self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
-
-        # Risky bidder scan section
-        ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=113, columnspan=3, sticky=(W, E))
-        risky_text = ("Risky bidder scan: among bidders with high bid >= threshold, "
-                      "mark those with score < threshold OR public notes containing "
-                      "Non Paying / Bad Check / Chargeback / Difficult.")
-        ttk.Label(mainframe, text=risky_text, wraplength=400).grid(column=1, row=114, columnspan=2, sticky=W)
-
-        ttk.Label(mainframe, text='Auction ID').grid(column=1, row=115, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_auction_id).grid(column=2, row=115, sticky=W)
-
-        ttk.Label(mainframe, text='High bid threshold').grid(column=1, row=116, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_high_bid_threshold).grid(column=2, row=116, sticky=W)
-
-        ttk.Label(mainframe, text='Score threshold').grid(column=1, row=117, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_score_threshold).grid(column=2, row=117, sticky=W)
-
-        self.scan_risky_button = ttk.Button(mainframe, text='Scan Risky Bidders', command=self.scan_risky_bidders)
-        self.scan_risky_button.grid(ipadx=5, column=1, row=118, sticky=W)
-        self.export_risky_button = ttk.Button(mainframe, text='Export CSV', command=self.export_risky_bidders_csv, state='disabled')
-        self.export_risky_button.grid(ipadx=5, column=2, row=118, sticky=W)
-
-        # Msg area setup
-        self.message = Text(mainframe, wrap="word", height=30)
-        self.message.grid(column=1, row=151, columnspan=3,  sticky=(N, S, W, E))
-        self.message.config(state="disabled")  # Start as read-only
-
-        # Scrollbar for the msg area
-        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.message.yview)
-        self.scrollbar.grid(column=4, row=151, sticky=(N, S, W, E))
-        self.message["yscrollcommand"] = self.scrollbar.set
-
-        # Log area setup
-        self.log_text = Text(mainframe, wrap="word", height=30)
-        self.log_text.grid(column=5, row=1, rowspan=151, columnspan=3, sticky=(N, S, E, W))
-        self.log_text.config(state="disabled")  # Start as read-only
-
-        # Scrollbar for the log area
-        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.log_text.yview)
-        self.scrollbar.grid(column=8, row=1, rowspan=151, sticky=(N, S, W, E))
-        self.log_text["yscrollcommand"] = self.scrollbar.set
-
-        # Add padding to each widget
-        for child in mainframe.winfo_children():
-            child.grid_configure(padx=5, pady=5)
-        # Focus on root window
-        self.mainframe = mainframe
-        root.focus()
-
-
-        # # Test values
-        # self.bot_acc.set(os.getenv('BOT_ACC'))
-        # self.bot_pwd.set(os.getenv('BOT_PWD'))
-        # self.bid_lot_link.set(os.getenv('AUCTION_LINK'))
-
-        # self.manager_acc.set(os.getenv('MNG_ACC'))
-        # self.manager_pwd.set(os.getenv('MNG_PWD'))
-        # self.management_lot_link.set(os.getenv('MNG_LINK'))
-
-        # Load credential from local json file
         credentials = load_credentials()
         if credentials:
-            # bot_acc = credentials.get("BOT_ACC")
-            # bot_pwd = credentials.get("BOT_PWD")
-            manager_acc = credentials.get("MNG_ACC")
-            manager_pwd = credentials.get("MNG_PWD")
-            # self.bot_acc.set(bot_acc)
-            # self.bot_pwd.set(bot_pwd)
-            self.manager_acc.set(manager_acc)
-            self.manager_pwd.set(manager_pwd)
+            self.manager_acc.set(credentials.get("MNG_ACC") or '')
+            self.manager_pwd.set(credentials.get("MNG_PWD") or '')
+            self.management_lot_link.set(credentials.get("MNG_LINK") or '')
+            self.bid_lot_link.set(credentials.get("BID_LINK") or '')
 
-            mng_link = credentials.get("MNG_LINK")
-            bid_link = credentials.get("BID_LINK")
-            self.management_lot_link.set(mng_link)
-            self.bid_lot_link.set(bid_link)
-
-
-        # Set twenty switch as default
         self.twenty_switch.set(False)
-
-        # Set block us bidder True as default
         self.block_us_bidder_switch.set(True)
+
+        root.focus()
 
         # Start asyncio loop
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self.start_event_loop, daemon=True)
         self.loop_thread.start()
+
+    # ---------- UI scaffolding ----------
+
+    def _init_styles(self):
+        style = ttk.Style()
+        for theme in ('vista', 'xpnative', 'winnative', 'clam'):
+            if theme in style.theme_names():
+                try:
+                    style.theme_use(theme)
+                    break
+                except Exception:
+                    continue
+
+        base_family = 'Segoe UI'
+        try:
+            default_font = tkfont.nametofont('TkDefaultFont')
+            default_font.configure(family=base_family, size=9)
+            text_font = tkfont.nametofont('TkTextFont')
+            text_font.configure(family=base_family, size=9)
+        except Exception:
+            pass
+
+        style.configure('App.TFrame', background=COLOR_BG)
+        style.configure('Card.TFrame', background=COLOR_PANEL)
+        style.configure('Header.TFrame', background=COLOR_PANEL)
+        style.configure('Status.TFrame', background='#e8e8e8')
+
+        style.configure('Title.TLabel', background=COLOR_PANEL,
+                        foreground=COLOR_HEADER_FG, font=(base_family, 14, 'bold'))
+        style.configure('Subtitle.TLabel', background=COLOR_PANEL,
+                        foreground=COLOR_SUBTLE_FG, font=(base_family, 9))
+        style.configure('Section.TLabelframe', background=COLOR_PANEL,
+                        borderwidth=1, relief='solid')
+        style.configure('Section.TLabelframe.Label', background=COLOR_PANEL,
+                        foreground=COLOR_ACCENT, font=(base_family, 9, 'bold'))
+        style.configure('Hint.TLabel', background=COLOR_PANEL,
+                        foreground=COLOR_SUBTLE_FG, font=(base_family, 8))
+        style.configure('Field.TLabel', background=COLOR_PANEL,
+                        foreground=COLOR_HEADER_FG, font=(base_family, 9))
+        style.configure('Status.TLabel', background='#e8e8e8',
+                        foreground='#333333', font=(base_family, 9))
+        style.configure('StatusAccent.TLabel', background='#e8e8e8',
+                        foreground=COLOR_ACCENT, font=(base_family, 9, 'bold'))
+        style.configure('TNotebook', background=COLOR_BG, borderwidth=0)
+        style.configure('TNotebook.Tab', padding=(18, 8), font=(base_family, 9))
+        style.configure('TCheckbutton', background=COLOR_PANEL)
+        style.configure('Accent.TButton', font=(base_family, 9, 'bold'))
+
+    def _build_menu(self, root):
+        menubar = Menu(root)
+
+        file_menu = Menu(menubar, tearoff=0)
+        file_menu.add_command(label='Open Auction File...', command=self.open_file)
+        file_menu.add_command(label='Load Processed List', command=self.load_processed_list)
+        file_menu.add_separator()
+        file_menu.add_command(label='Exit', command=root.destroy)
+        menubar.add_cascade(label='File', menu=file_menu)
+
+        action_menu = Menu(menubar, tearoff=0)
+        action_menu.add_command(label='Login Accounts', command=self.login_accounts)
+        action_menu.add_command(label='Collect Information', command=self.collect_information)
+        action_menu.add_separator()
+        action_menu.add_command(label='Start Automation', command=self.start_automation)
+        action_menu.add_command(label='Stop Automation', command=self.stop_automation)
+        action_menu.add_command(label='Infinite Bid', command=self.infinite_bid)
+        menubar.add_cascade(label='Actions', menu=action_menu)
+
+        help_menu = Menu(menubar, tearoff=0)
+        help_menu.add_command(label='About', command=self._show_about)
+        menubar.add_cascade(label='Help', menu=help_menu)
+
+        root.config(menu=menubar)
+
+    def _build_header(self, root):
+        header = ttk.Frame(root, style='Header.TFrame', padding=(16, 12))
+        header.pack(fill=X)
+        ttk.Label(header, text='Hibid Automation', style='Title.TLabel').pack(anchor=W)
+        ttk.Label(header,
+                  text='Automated bidding · Bidder filter · Risk scanner',
+                  style='Subtitle.TLabel').pack(anchor=W, pady=(2, 0))
+        ttk.Separator(root, orient='horizontal').pack(fill=X)
+
+    def _build_bid_tab(self, notebook):
+        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        notebook.add(tab, text='  Auto Bid  ')
+        tab.columnconfigure(0, weight=1)
+
+        # Accounts group
+        acc = ttk.Labelframe(tab, text=' Accounts ', style='Section.TLabelframe', padding=12)
+        acc.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        acc.columnconfigure(1, weight=1)
+
+        self._add_field(acc, 0, 'Management Account *', self.manager_acc)
+        self._add_field(acc, 1, 'Management Password *', self.manager_pwd, show='*')
+        self._add_field(acc, 2, 'Bot Account', self.bot_acc, state='disabled')
+        self._add_field(acc, 3, 'Bot Password', self.bot_pwd, show='*', state='disabled')
+
+        # Links group
+        links = ttk.Labelframe(tab, text=' Auction Links ', style='Section.TLabelframe', padding=12)
+        links.grid(row=1, column=0, sticky=(W, E), pady=(0, 10))
+        links.columnconfigure(1, weight=1)
+
+        self._add_field(links, 0, 'Management Link *', self.management_lot_link)
+        self._add_field(links, 1, 'Bid Lot Link *', self.bid_lot_link)
+
+        # Options
+        opts = ttk.Labelframe(tab, text=' Options ', style='Section.TLabelframe', padding=12)
+        opts.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
+        opts.columnconfigure(1, weight=1)
+        ttk.Checkbutton(opts, text='>$100 lots: use 15% of MSRP as floor',
+                        variable=self.twenty_switch).grid(row=0, column=0, columnspan=2, sticky=W)
+        ttk.Label(opts,
+                  text='When enabled, target = max(max_bid_price, msrp_price × multiplier).',
+                  style='Hint.TLabel', wraplength=480).grid(row=1, column=0, columnspan=2,
+                                                            sticky=W, pady=(4, 0))
+
+        # Actions
+        actions = ttk.Labelframe(tab, text=' Workflow ', style='Section.TLabelframe', padding=12)
+        actions.grid(row=3, column=0, sticky=(W, E))
+        for c in range(4):
+            actions.columnconfigure(c, weight=1, uniform='btn')
+
+        btn_w = 22
+        ttk.Button(actions, text='1. Open Auction File',
+                   width=btn_w, command=self.open_file).grid(row=0, column=0, padx=4, pady=4, sticky=(W, E))
+        ttk.Button(actions, text='2. Login Accounts',
+                   width=btn_w, command=self.login_accounts).grid(row=0, column=1, padx=4, pady=4, sticky=(W, E))
+        ttk.Button(actions, text='3. Collect Information',
+                   width=btn_w, command=self.collect_information).grid(row=0, column=2, padx=4, pady=4, sticky=(W, E))
+
+        self.start_button = ttk.Button(actions, text='4. Start Automation',
+                                       style='Accent.TButton', width=btn_w,
+                                       command=self.start_automation)
+        self.start_button.grid(row=1, column=0, padx=4, pady=4, sticky=(W, E))
+
+        self.infinate_button = ttk.Button(actions, text='Infinite Bid',
+                                          width=btn_w, command=self.infinite_bid)
+        self.infinate_button.grid(row=1, column=1, padx=4, pady=4, sticky=(W, E))
+
+        self.stop_button = ttk.Button(actions, text='Stop Automation',
+                                      width=btn_w, command=self.stop_automation,
+                                      state='disabled')
+        self.stop_button.grid(row=1, column=2, padx=4, pady=4, sticky=(W, E))
+
+    def _build_filter_tab(self, notebook):
+        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        notebook.add(tab, text='  Bidder Filter  ')
+        tab.columnconfigure(0, weight=1)
+
+        intro = ttk.Labelframe(tab, text=' How it works ', style='Section.TLabelframe', padding=12)
+        intro.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        ttk.Label(intro,
+                  text=('Bidders with reputation < 20 and total bid > $200 are inspected. '
+                        'If ≥50% of their winning items have max bid > $200, all their bids are '
+                        'declined and their profile is blocked.'),
+                  style='Hint.TLabel', wraplength=520).pack(anchor=W)
+
+        lists = ttk.Labelframe(tab, text=' Lists ', style='Section.TLabelframe', padding=12)
+        lists.grid(row=1, column=0, sticky=(W, E), pady=(0, 10))
+        lists.columnconfigure(1, weight=1)
+
+        self._add_field(lists, 0, 'Allowed list', self.allowed_list)
+        self._add_field(lists, 1, 'Blocked list', self.blocked_list, state='readonly')
+
+        opts = ttk.Labelframe(tab, text=' Options ', style='Section.TLabelframe', padding=12)
+        opts.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
+        ttk.Checkbutton(opts, text='Block bidders located in the United States',
+                        variable=self.block_us_bidder_switch).grid(row=0, column=0, sticky=W)
+
+        actions = ttk.Labelframe(tab, text=' Workflow ', style='Section.TLabelframe', padding=12)
+        actions.grid(row=3, column=0, sticky=(W, E))
+        for c in range(3):
+            actions.columnconfigure(c, weight=1, uniform='fbtn')
+
+        btn_w = 22
+        ttk.Button(actions, text='1. Load Processed List',
+                   width=btn_w, command=self.load_processed_list).grid(row=0, column=0, padx=4, pady=4, sticky=(W, E))
+        self.start_filter = ttk.Button(actions, text='2. Start Filter',
+                                       style='Accent.TButton', width=btn_w,
+                                       command=self.start_filter_bidder)
+        self.start_filter.grid(row=0, column=1, padx=4, pady=4, sticky=(W, E))
+        self.stop_filter = ttk.Button(actions, text='Stop Filter',
+                                      width=btn_w, command=self.stop_filter_bidder,
+                                      state='disabled')
+        self.stop_filter.grid(row=0, column=2, padx=4, pady=4, sticky=(W, E))
+
+    def _build_risky_tab(self, notebook):
+        tab = ttk.Frame(notebook, style='Card.TFrame', padding=14)
+        notebook.add(tab, text='  Risk Scan  ')
+        tab.columnconfigure(0, weight=1)
+
+        intro = ttk.Labelframe(tab, text=' How it works ', style='Section.TLabelframe', padding=12)
+        intro.grid(row=0, column=0, sticky=(W, E), pady=(0, 10))
+        ttk.Label(intro,
+                  text=('Among bidders with a high bid ≥ threshold, mark those with reputation < '
+                        'threshold OR whose public notes contain Non Paying / Bad Check / '
+                        'Chargeback / Difficult.'),
+                  style='Hint.TLabel', wraplength=520).pack(anchor=W)
+
+        params = ttk.Labelframe(tab, text=' Parameters ', style='Section.TLabelframe', padding=12)
+        params.grid(row=1, column=0, sticky=(W, E), pady=(0, 10))
+        params.columnconfigure(1, weight=1)
+
+        self._add_field(params, 0, 'Auction ID', self.risky_auction_id)
+        self._add_field(params, 1, 'High bid threshold ($)', self.risky_high_bid_threshold)
+        self._add_field(params, 2, 'Score threshold', self.risky_score_threshold)
+
+        actions = ttk.Labelframe(tab, text=' Workflow ', style='Section.TLabelframe', padding=12)
+        actions.grid(row=2, column=0, sticky=(W, E))
+        for c in range(2):
+            actions.columnconfigure(c, weight=1, uniform='rbtn')
+
+        btn_w = 22
+        self.scan_risky_button = ttk.Button(actions, text='Scan Risky Bidders',
+                                            style='Accent.TButton', width=btn_w,
+                                            command=self.scan_risky_bidders)
+        self.scan_risky_button.grid(row=0, column=0, padx=4, pady=4, sticky=(W, E))
+        self.export_risky_button = ttk.Button(actions, text='Export CSV',
+                                              width=btn_w,
+                                              command=self.export_risky_bidders_csv,
+                                              state='disabled')
+        self.export_risky_button.grid(row=0, column=1, padx=4, pady=4, sticky=(W, E))
+
+    def _build_right_panel(self, parent):
+        paned = ttk.PanedWindow(parent, orient='vertical')
+        paned.pack(fill=BOTH, expand=True)
+
+        msg_section = ttk.Labelframe(paned, text=' Messages ',
+                                     style='Section.TLabelframe', padding=6)
+        self.message = self._make_text_widget(msg_section)
+        paned.add(msg_section, weight=1)
+
+        log_section = ttk.Labelframe(paned, text=' Debug Log ',
+                                     style='Section.TLabelframe', padding=6)
+        self.log_text = self._make_text_widget(log_section)
+        paned.add(log_section, weight=1)
+
+    def _make_text_widget(self, parent):
+        container = ttk.Frame(parent)
+        container.pack(fill=BOTH, expand=True)
+        text = Text(container, wrap='word',
+                    font=('Consolas', 9),
+                    bg=COLOR_TEXT_BG, fg=COLOR_TEXT_FG,
+                    relief='flat', borderwidth=0,
+                    padx=8, pady=6,
+                    highlightthickness=1,
+                    highlightbackground=COLOR_BORDER,
+                    highlightcolor=COLOR_BORDER)
+        scrollbar = ttk.Scrollbar(container, orient='vertical', command=text.yview)
+        text['yscrollcommand'] = scrollbar.set
+        text.pack(side=LEFT, fill=BOTH, expand=True)
+        scrollbar.pack(side=RIGHT, fill=Y)
+        text.config(state='disabled')
+        return text
+
+    def _build_statusbar(self, root):
+        bar = ttk.Frame(root, style='Status.TFrame', padding=(12, 4))
+        bar.pack(fill=X, side=BOTTOM)
+
+        ttk.Label(bar, text='Status:', style='Status.TLabel').pack(side=LEFT)
+        ttk.Label(bar, textvariable=self.status_var, style='StatusAccent.TLabel').pack(side=LEFT, padx=(4, 16))
+
+        ttk.Label(bar, textvariable=self.last_action_var, style='Status.TLabel').pack(side=RIGHT)
+        ttk.Label(bar, textvariable=self.round_var, style='Status.TLabel').pack(side=RIGHT, padx=(0, 16))
+
+    def _add_field(self, parent, row, label, var, show=None, state='normal'):
+        ttk.Label(parent, text=label, style='Field.TLabel').grid(row=row, column=0,
+                                                                  sticky=W, padx=(0, 10), pady=4)
+        entry = ttk.Entry(parent, textvariable=var, show=show, state=state)
+        entry.grid(row=row, column=1, sticky=(W, E), pady=4)
+        return entry
+
+    def _set_status(self, text):
+        try:
+            self.status_var.set(text)
+        except Exception:
+            pass
+
+    def _show_about(self):
+        from tkinter import messagebox
+        messagebox.showinfo(
+            'About Hibid Automation',
+            'Hibid Automation\n\n'
+            'Automated bidding, bidder filtering, and risk scanning\n'
+            'for Hibid auctions via Playwright + CDP.'
+        )
+
+    # ---------- existing logic below ----------
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
-
+        
     # def process_events(self):
     #     self.loop.call_soon_threadsafe(self.loop.stop)
     #     self.root.after(100, self.process_events)
-
-
+    
+    
     def start_event_loop(self):
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
-
-
+    
+    
     # Open file dialog to import auction export file, must have msrp_price and lot columns
     def open_file(self):
         try:
@@ -280,8 +444,8 @@ class BidGui:
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
-
-
+    
+            
     # Login manager and bot accounts
     def login_accounts(self):
         if self.check_form():
@@ -293,8 +457,8 @@ class BidGui:
                 except Exception as e:
                     self.show_log(f"Error in login: {str(e)}")
             future.add_done_callback(done_callback)
-
-
+            
+            
     def collect_information(self):
         future = asyncio.run_coroutine_threadsafe(self.automation.get_bids_info(
             self.mng_page, 1,
@@ -306,8 +470,8 @@ class BidGui:
             except Exception as e:
                 self.show_log(f"Error in collection information: {str(e)}")
         future.add_done_callback(done_callback)
-
-
+        
+        
     def infinite_bid(self):
         if not self.automation.is_running:
             self.automation.is_running = True
@@ -316,17 +480,19 @@ class BidGui:
             self.infinate_button.config(state='disabled')
             self.start_button.config(state='disabled')
             self.rd = 1
+            self._set_status('Infinite bidding')
+            self.round_var.set(f'Round: {self.rd}')
             # Create the async task
             self.start = None
             self.end = None
-
+            
             async def sleep_func(diff):
                 if diff < 90:
                     sleep_time = round(90 - diff, 2)
                     self.show_message(f"Waiting for {sleep_time} seconds before next auto bid round...")
                     await asyncio.sleep(sleep_time)
                 return
-
+                
             def get_info():
                 self.start = datetime.datetime.now()
                 self.show_message(f"Starting infinite bid automation round [ {self.rd} ]...")
@@ -347,7 +513,7 @@ class BidGui:
                     except Exception as e:
                         self.show_log(f"Error in getting bid information: {str(e)}")
                 futrue_get_info.add_done_callback(get_info_done_callback)
-
+            
             def automation():
                 self.start = datetime.datetime.now()
                 future_automation = asyncio.run_coroutine_threadsafe(
@@ -360,7 +526,7 @@ class BidGui:
                     ),
                     self.loop
                 )
-
+                
                 def automation_done_callback(fut):
                     try:
                         res = fut.result()
@@ -369,6 +535,7 @@ class BidGui:
                         diff = round((self.end - self.start).total_seconds(), 2)
                         self.show_message(f"Auto bid round [ {self.rd} ] completed in {diff} seconds.")
                         self.rd += 1
+                        self.round_var.set(f'Round: {self.rd}')
                         if self.automation.is_running:
                                 sleep_future = asyncio.run_coroutine_threadsafe(
                                     sleep_func(diff),
@@ -382,10 +549,10 @@ class BidGui:
                     except Exception as e:
                         self.show_log(f"Error in automation: {str(e)}")
                 future_automation.add_done_callback(automation_done_callback)
-
+            
             # Start the first get_info call
             get_info()
-
+                
 
     def start_automation(self):
         try:
@@ -395,7 +562,8 @@ class BidGui:
                 self.stop_button.config(state='normal')
                 self.start_button.config(state='disabled')
                 self.infinate_button.config(state='disabled')
-
+                self._set_status('Bidding (single pass)')
+                
                 # Create the async task
                 future = asyncio.run_coroutine_threadsafe(
                     self.automation.start_automation_async(
@@ -407,7 +575,7 @@ class BidGui:
                     ),
                     self.loop
                 )
-
+                
                 def done_callback(fut):
                     try:
                         res = fut.result()
@@ -419,14 +587,14 @@ class BidGui:
                         # For normal finish
                         self.stop_automation_cleanup()
                 future.add_done_callback(done_callback)
-
+                
         except Exception as e:
             self.automation.stop_automation()
-            self.stop_button.config(state='disabled')
+            self.stop_button.config(state='disabled') 
             self.start_button.config(state='normal')
             error_details = traceback.format_exc()
             self.show_log(error_details)
-
+          
 
     def stop_automation_cleanup(self):
         if self.automation.is_running:
@@ -434,52 +602,52 @@ class BidGui:
             self.stop_button.config(state='disabled')
             self.start_button.config(state='normal')
             self.infinate_button.config(state='normal')
-
+            self._set_status('Ready')
+            self.round_var.set('')
+            
     def clean_infinite_bid(self):
         self.rd = 1
         self.start = None
         self.end = None
-
+            
     def stop_automation(self):
         self.show_log("Stopping automation... Please wait for current operation to complete.")
         self.stop_automation_cleanup()
-
+        
     def show_message(self, msg):
-        # Enable text widget to insert new msg
+        now = datetime.datetime.now().replace(microsecond=0)
         self.message.config(state="normal")
-
-        # Insert log at the end with a new line
-        self.message.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + msg + "\n")
-
-        # Scroll to the end
+        self.message.insert("end", f"[{now}]: " + msg + "\n")
         self.message.see("end")
-
-        # Disable text widget to prevent editing
         self.message.config(state="disabled")
-
+        try:
+            self.last_action_var.set(f"Last activity: {now.strftime('%H:%M:%S')}")
+        except Exception:
+            pass
+            
     # def hide_message(self):
     #     if(self.message):
     #         # Enable text widget to insert new msg
     #         self.message.config(state="normal")
     #         self.message.("end", msg + "\n")
-
+    
     def show_log(self, log):
         # Enable text widget to insert new log
         self.log_text.config(state="normal")
-
+        
         # Insert log at the end with a new line
         self.log_text.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + log + "\n")
-
+        
         # Scroll to the end
         self.log_text.see("end")
-
+        
         # Disable text widget to prevent editing
         self.log_text.config(state="disabled")
-
+    
     def update_block_list(self, l):
         self.blocked_list.set(','.join([str(bidder) for bidder in l]))
-
-
+        
+        
     async def login_accounts_async(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
@@ -493,19 +661,19 @@ class BidGui:
                 context = contexts[0]
             else:
                 context = await browser.new_context()
-
+            
             # Get the first existing page or open a new one
             pages = context.pages
             if pages:
                 page = pages[0]
             else:
                 page = await context.new_page()
-
+            
             self.bot_page = page
-
+            
             # self.bot_browser = await self.playwright.chromium.launch_persistent_context(
-            #     bot_data_dir,
-            #     headless=False,
+            #     bot_data_dir, 
+            #     headless=False, 
             #     viewport=viewport,
             #     locale="en-US",
             #     timezone_id="America/New_York",
@@ -519,13 +687,13 @@ class BidGui:
 
             # )
             # self.bot_page = self.bot_browser.pages[0]
-
+            
             await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
             if not self.mng_browser:
                 self.mng_browser = await self.launch_context()
             if not self.mng_page:
                 self.mng_page = await self.mng_browser.new_page()
-
+            
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
             self.save_info()
             return 'Login success! Please collect bid information.'
@@ -555,13 +723,14 @@ class BidGui:
 
     def start_filter_bidder(self):
         asyncio.run_coroutine_threadsafe(self.start_filter_bidder_async(), self.loop)
-
-
+            
+            
     async def start_filter_bidder_async(self):
         if not self.automation.is_filter_running:
             self.automation.is_filter_running = True
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
+            self._set_status('Filtering bidders')
             self.show_message("Starting filter bidder automation...")
             special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
@@ -575,20 +744,21 @@ class BidGui:
                 # high_value_percent = self.high_value_percent.get()
                 self.show_message(result)
                 self.show_message("Start filtering...")
-
-                self.save_info()
+                
+                self.save_info()                
                 result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
                 self.stop_filter_bidder()
                 self.show_message(result2)
             except Exception as e:
                 self.show_log(f"Error in filter bidder: {str(e)}")
-
-
+            
+            
     def stop_filter_bidder(self):
         if self.automation.is_filter_running:
             self.automation.is_filter_running = False
             self.start_filter.config(state='normal')
             self.stop_filter.config(state='disabled')
+            self._set_status('Ready')
             self.show_message("Filter bidder automation stopped.")
 
 
@@ -625,8 +795,8 @@ class BidGui:
         self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
         self.blocked_list.set(','.join([str(bidder) for bidder in self.automation.already_blocked_list]))
         self.show_message('Load processed list success')
-
-
+        
+    
     def check_form(self):
         check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' else True
         if not check_success:
@@ -656,6 +826,7 @@ class BidGui:
 
         self.scan_risky_button.config(state='disabled')
         self.export_risky_button.config(state='disabled')
+        self._set_status('Scanning risky bidders')
         future = asyncio.run_coroutine_threadsafe(
             self.scan_risky_bidders_async(auction_id, high_thr, score_thr), self.loop)
 
@@ -668,6 +839,7 @@ class BidGui:
                 self.show_log(f"Risky scan failed: {e}\n{traceback.format_exc()}")
             finally:
                 self.scan_risky_button.config(state='normal')
+                self._set_status('Ready')
         future.add_done_callback(done)
 
 
@@ -712,6 +884,7 @@ class BidGui:
             self.show_message(f"Exported to {path}")
         except Exception as e:
             self.show_log(f"Export failed: {e}\n{traceback.format_exc()}")
+
 
 
 
