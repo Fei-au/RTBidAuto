@@ -159,6 +159,9 @@ class BidGui:
         except Exception:
             pass
 
+        # Switch style: sv-ttk provides a proper toggle; fall back to standard checkbutton
+        self.switch_style = 'Switch.TCheckbutton' if _HAS_SV_TTK else 'TCheckbutton'
+
         # Only configure what we add on top of sv-ttk's defaults — leave
         # backgrounds alone so the theme's coherent palette wins.
         style.configure('Title.TLabel', font=(base_family, 18, 'bold'))
@@ -239,7 +242,8 @@ class BidGui:
         opts.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
         opts.columnconfigure(1, weight=1)
         ttk.Checkbutton(opts, text='>$100 lots: use 15% of MSRP as floor',
-                        variable=self.twenty_switch).grid(row=0, column=0, columnspan=2, sticky=W)
+                        variable=self.twenty_switch,
+                        style=self.switch_style).grid(row=0, column=0, columnspan=2, sticky=W)
         ttk.Label(opts,
                   text='When enabled, target = max(max_bid_price, msrp_price × multiplier).',
                   style='Hint.TLabel', wraplength=480).grid(row=1, column=0, columnspan=2,
@@ -296,7 +300,8 @@ class BidGui:
         opts = ttk.Labelframe(tab, text=' Options ', style='Section.TLabelframe', padding=12)
         opts.grid(row=2, column=0, sticky=(W, E), pady=(0, 10))
         ttk.Checkbutton(opts, text='Block bidders located in the United States',
-                        variable=self.block_us_bidder_switch).grid(row=0, column=0, sticky=W)
+                        variable=self.block_us_bidder_switch,
+                        style=self.switch_style).grid(row=0, column=0, sticky=W)
 
         actions = ttk.Labelframe(tab, text=' Workflow ', style='Section.TLabelframe', padding=12)
         actions.grid(row=3, column=0, sticky=(W, E))
