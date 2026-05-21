@@ -84,7 +84,7 @@ class BidGui:
         self.risky_register_page = None
         self.risky_auction_id = StringVar()
         self.risky_high_bid_threshold = StringVar(value='50')
-        self.risky_score_threshold = StringVar(value='30')
+        self.risky_score_threshold = StringVar(value='20')
 
 
         mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
