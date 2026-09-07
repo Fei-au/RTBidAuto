@@ -533,8 +533,9 @@ class Automation:
         bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
         try:
             await bidder_id_ele_a.click()
-        except Exception as e:
-            return
+        except Exception:
+            self.show_log(f'[{bidder_id}] could not open the row, not blocked')
+            return False
         await bidder_profile_ele.locator('a[class="bidder-profile"]').click()
         profile_modal_content = page.locator('div#bidder-profile-modal div.modal-content')
         await profile_modal_content.locator('select[name="bidder-profile-decline-reason"]').select_option('7')
@@ -545,7 +546,31 @@ class Automation:
         self.already_blocked_list.append(bidder_id)
         self.update_block_list(self.already_blocked_list)
         self.show_log(f'[{bidder_id}] profile has been blocked')
-        
+        return True
+
+    async def wait_for_register_list(self, page, timeout=30000):
+        table = page.locator('div.register-list-container table#register-list tbody')
+        try:
+            await table.wait_for(state='visible', timeout=timeout)
+            return True
+        except Exception:
+            return False
+
+    async def find_bidder_row(self, page, bidder_id):
+        # Row indexes do not survive a reload: the list is sorted, and declining
+        # a bidder's items moves them. Always look the row up by id again.
+        table = page.locator('div.register-list-container table#register-list tbody')
+        rows = table.get_by_role('row')
+        for i in range(await rows.count()):
+            cell = rows.nth(i).locator('td.bidder')
+            try:
+                text = await cell.get_by_role('link').nth(0).inner_text()
+            except Exception:
+                continue
+            if text.strip().split(' ')[0] == bidder_id:
+                return cell
+        return None
+
     async def is_win_item_half_high_value(self, bidder_id, page, total_bid_amount_a, high_value, high_value_percent):
         await total_bid_amount_a.click()
         bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
@@ -582,16 +607,21 @@ class Automation:
             return False
         
     # This includes decline all items and block the account
-    async def block_acc(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data):
+    async def block_acc(self, bidder_id, page, total_bid_amount_a, data):
         # 2.1.1 Decline items
         await self.decline_items(bidder_id=bidder_id, page=page, total_bid_amount_a=total_bid_amount_a)
-        # After close the deline item modal, it will redirect itself,
-        await asyncio.sleep(4)
-        await page.wait_for_load_state("load")
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(3)
-        # 2.1.2 Block account
-        await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=bidder_profile_ele)
+        # Closing the decline modal reloads the page by itself. Wait for the
+        # list to come back rather than guessing how long that takes.
+        if not await self.wait_for_register_list(page):
+            self.show_log(f'[{bidder_id}] register list did not come back after declining')
+            return False
+        # 2.1.2 Block account, against the row as it stands now
+        row = await self.find_bidder_row(page, bidder_id)
+        if row is None:
+            self.show_log(f'[{bidder_id}] gone from the list after declining, not blocking')
+            return False
+        if not await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=row):
+            return False
         # 2.1.3 Send log
         try:
             request_res = block_bidder_log(data)
@@ -599,6 +629,7 @@ class Automation:
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
+        return True
 
     # Force-navigate to refresh_url and wait for it to settle. Used as a recovery
     # path when row processing throws (stale DOM, blank page after a block, etc.).
@@ -620,19 +651,19 @@ class Automation:
             await asyncio.sleep(min(2 ** attempt, 30))
         self.show_log(f'{prefix}force-refresh gave up after {max_attempts} attempts')
         return False
+        self.show_log(f'{prefix}force-refresh gave up after {max_attempts} attempts')
+        return False
 
     # Wraps block_acc so that if the post-decline page refresh stalls or lands on
     # an empty page, we recover by force-navigating to refresh_url. Returns True
     # on normal completion, False if recovery was triggered (caller should
     # re-enumerate the current page rather than click Next).
-    async def block_acc_safe(self, bidder_id, page, total_bid_amount_a, bidder_profile_ele, data, refresh_url):
+    async def block_acc_safe(self, bidder_id, page, total_bid_amount_a, data, refresh_url):
         try:
-            await self.block_acc(bidder_id=bidder_id,
-                                 page=page,
-                                 total_bid_amount_a=total_bid_amount_a,
-                                 bidder_profile_ele=bidder_profile_ele,
-                                 data=data)
-            return True
+            return await self.block_acc(bidder_id=bidder_id,
+                                        page=page,
+                                        total_bid_amount_a=total_bid_amount_a,
+                                        data=data)
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(f'[{bidder_id}] block_acc failed, force-refreshing page')
@@ -755,7 +786,6 @@ class Automation:
                             success = await self.block_acc_safe(bidder_id=bidder_id,
                                            page=page,
                                            total_bid_amount_a=total_bid_amount_a,
-                                           bidder_profile_ele=bidder_profile_ele,
                                            data=data,
                                            refresh_url=url)
                             if not success:
@@ -825,7 +855,6 @@ class Automation:
                                 success = await self.block_acc_safe(bidder_id=bidder_id,
                                             page=page,
                                             total_bid_amount_a=total_bid_amount_a,
-                                            bidder_profile_ele=bidder_profile_ele,
                                             data=data,
                                             refresh_url=url_state_desc)
                                 if not success:
