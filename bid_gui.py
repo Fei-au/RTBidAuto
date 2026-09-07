@@ -14,8 +14,6 @@ import datetime
 import time
 from urllib.parse import urlparse
 from tools import load_bidder_registration, get_auction_id
-from risky_scan import RiskyScanner
-import csv
 
 
 
@@ -77,14 +75,6 @@ class BidGui:
 
         self.twenty_switch = BooleanVar()
         self.block_us_bidder_switch = BooleanVar()
-
-        # Risky bidder scan
-        self.risky_scanner = RiskyScanner(self.show_log, self.show_message)
-        self.risky_lotstat_page = None
-        self.risky_register_page = None
-        self.risky_auction_id = StringVar()
-        self.risky_high_bid_threshold = StringVar(value='50')
-        self.risky_score_threshold = StringVar(value='20')
 
 
         mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
@@ -169,27 +159,6 @@ class BidGui:
         self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
         self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
-
-        # Risky bidder scan section
-        ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=113, columnspan=3, sticky=(W, E))
-        risky_text = ("Risky bidder scan: among bidders with high bid >= threshold, "
-                      "mark those with score < threshold OR public notes containing "
-                      "Non Paying / Bad Check / Chargeback / Difficult.")
-        ttk.Label(mainframe, text=risky_text, wraplength=400).grid(column=1, row=114, columnspan=2, sticky=W)
-
-        ttk.Label(mainframe, text='Auction ID').grid(column=1, row=115, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_auction_id).grid(column=2, row=115, sticky=W)
-
-        ttk.Label(mainframe, text='High bid threshold').grid(column=1, row=116, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_high_bid_threshold).grid(column=2, row=116, sticky=W)
-
-        ttk.Label(mainframe, text='Score threshold').grid(column=1, row=117, sticky=W)
-        ttk.Entry(mainframe, width=30, textvariable=self.risky_score_threshold).grid(column=2, row=117, sticky=W)
-
-        self.scan_risky_button = ttk.Button(mainframe, text='Scan Risky Bidders', command=self.scan_risky_bidders)
-        self.scan_risky_button.grid(ipadx=5, column=1, row=118, sticky=W)
-        self.export_risky_button = ttk.Button(mainframe, text='Export CSV', command=self.export_risky_bidders_csv, state='disabled')
-        self.export_risky_button.grid(ipadx=5, column=2, row=118, sticky=W)
 
         # Msg area setup
         self.message = Text(mainframe, wrap="word", height=30)
@@ -635,88 +604,3 @@ class BidGui:
         # else:
         #     self.hide_message()
         return check_success
-
-
-    def scan_risky_bidders(self):
-        auction_id = self.risky_auction_id.get().strip()
-        if not auction_id:
-            self.show_message("Please input auction id")
-            return
-        if not self.manager_acc.get() or not self.manager_pwd.get():
-            self.show_message("Please input manager account/password")
-            return
-        if self.risky_scanner.is_running:
-            self.show_message("Risky scan already running")
-            return
-        try:
-            high_thr = float(self.risky_high_bid_threshold.get())
-            score_thr = int(self.risky_score_threshold.get())
-        except ValueError:
-            self.show_message("Thresholds must be numbers")
-            return
-
-        self.scan_risky_button.config(state='disabled')
-        self.export_risky_button.config(state='disabled')
-        future = asyncio.run_coroutine_threadsafe(
-            self.scan_risky_bidders_async(auction_id, high_thr, score_thr), self.loop)
-
-        def done(fut):
-            try:
-                fut.result()
-                if self.risky_scanner.risky_bidders:
-                    self.export_risky_button.config(state='normal')
-            except Exception as e:
-                self.show_log(f"Risky scan failed: {e}\n{traceback.format_exc()}")
-            finally:
-                self.scan_risky_button.config(state='normal')
-        future.add_done_callback(done)
-
-
-    async def scan_risky_bidders_async(self, auction_id, high_thr, score_thr):
-        if not self.playwright:
-            self.playwright = await async_playwright().start()
-        if not self.mng_browser:
-            self.mng_browser = await self.launch_context()
-        if not self.risky_lotstat_page:
-            self.risky_lotstat_page = await self.mng_browser.new_page()
-        if not self.risky_register_page:
-            self.risky_register_page = await self.mng_browser.new_page()
-
-        await self.risky_scanner.login_manager(
-            self.risky_lotstat_page, self.manager_acc.get(), self.manager_pwd.get())
-
-        self.show_message(f"Scanning auction {auction_id} ...")
-        await self.risky_scanner.scan(
-            self.risky_lotstat_page, self.risky_register_page,
-            auction_id, high_thr, score_thr)
-
-        for b in self.risky_scanner.risky_bidders:
-            self.show_message(f"[{b['bidcard_num']}] {b['name']} - score={b['score']} - {b['reason']}")
-
-
-    def export_risky_bidders_csv(self):
-        if not self.risky_scanner.risky_bidders:
-            self.show_message("No risky bidders to export")
-            return
-        path = filedialog.asksaveasfilename(
-            defaultextension='.csv',
-            filetypes=[('CSV', '*.csv')],
-            initialfile=f'risky_bidders_{self.risky_auction_id.get()}.csv')
-        if not path:
-            return
-        try:
-            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=['bidcard_num', 'name', 'score', 'reason', 'notes'])
-                writer.writeheader()
-                for b in self.risky_scanner.risky_bidders:
-                    writer.writerow(b)
-            self.show_message(f"Exported to {path}")
-        except Exception as e:
-            self.show_log(f"Export failed: {e}\n{traceback.format_exc()}")
-
-
-
-
-
-
-
