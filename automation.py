@@ -1,4 +1,6 @@
 import asyncio
+import re
+from urllib.parse import urlparse
 from tools import get_upper_level_url, add_log, save_bidder_registration, block_bidder_log, filter_bidder_txns
 import pandas as pd
 from datetime import datetime, timezone
@@ -13,9 +15,27 @@ import time
     
 
 class Automation:
-    
+
+    # HiBid's PWA redesign dropped the aria-label from every text button, so
+    # each selector below matches the old label first and the visible text
+    # second, keeping both site versions working.
+    RECONFIRM_BUTTON = (
+        '[aria-label*="Click Here to Reconfirm"], '
+        'button:has-text("Click Here to Reconfirm")'
+    )
+    # First money-looking number in a label, e.g. "Click Here to Reconfirm CA$1,234.00".
+    BID_AMOUNT_RE = re.compile('([0-9][0-9,]*[.]?[0-9]*)')
+    # Auction header button text. The title attribute reads "Registered" in both
+    # states, so only the text tells the two apart.
+    REGISTERED_BUTTON_TEXT = 'You are Registered'
+    # Registration moved out of the PWA into a separate three step wizard.
+    REGISTRATION_PATH = '/pf/auction-registration/'
+    DELIVERY_METHOD = 'input#delivery-method-1'  # Pickup
+
     def __init__(self, show_log, show_message, update_block_list) -> None:
-        self.lot_dict = None
+        # Starts empty rather than None: the uploaded file is optional, and
+        # get_bids_info fills this in from the manager site either way.
+        self.lot_dict = {}
         self.bid_link = None
         self.show_log = show_log
         self.show_message = show_message
@@ -122,6 +142,8 @@ class Automation:
         # await page.click('option[value="5"]')  # This might vary based on the custom implementation
 
         # clean self.lot_dict first, only leave msrp price
+        if self.lot_dict is None:
+            self.lot_dict = {}
         for lot in self.lot_dict:
             self.lot_dict[lot] = {
                 'msrp_price': self.lot_dict[lot]['msrp_price'],
@@ -251,8 +273,8 @@ class Automation:
             
     # mode: 1 for static bid, 2 for infinate bid
     async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc, mode):
-        if self.lot_dict == None:
-            self.show_log('Please collect lot info first')
+        if not self.lot_dict:
+            self.show_log('No lot info collected yet, run Collect Information first')
             return
         unique_id = str(uuid.uuid4())
         item_log = []
@@ -392,18 +414,33 @@ class Automation:
             await page.goto(self.bid_link + f'?q={lot}')
             await page.wait_for_load_state('networkidle')
             await self.clear_subscribe_modal(page)
-            
+
+            if not self.registered:
+                self.registered = await self.ensure_registered(page)
+                if not self.registered:
+                    self.show_log(f'Lot {lot} skipped: not registered for this auction')
+                    return 0, 'skip'
+                # Registering navigates away, so come back to this lot.
+                await page.goto(self.bid_link + f'?q={lot}')
+                await page.wait_for_load_state('networkidle')
+                await self.clear_subscribe_modal(page)
+
             # Start bid
-            lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")')
-            bid_button = lot_title.get_by_label('Bid', exact=True)
+            lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")').first
+            if await lot_title.count() == 0:
+                self.show_log(f'Lot {lot} not found on the search page, skipping...')
+                return 0, 'skip'
+            # HiBid's PWA moved the tile bid button into an <app-button> wrapper
+            # with no aria-label, so match the visible text and keep the old
+            # aria-label as a fallback.
+            bid_button = lot_title.locator(
+                '[aria-label="Bid"], '
+                'app-lot-buttons .lot-bid-container button:has(span.lot-bid-text)'
+            ).first
             if await bid_button.count() == 0:
-                self.show_log(f'Lot {lot} not found, or already closed, skipping...')
+                self.show_log(f'Lot {lot} bid button not found, or already closed, skipping...')
                 return 0, 'skip'
             await bid_button.click()
-            
-            # Get rid of register modal for first time bid on this auction
-            if not self.registered:
-                self.registered = await self.bot_register_auction(page)
 
             bid_modal = page.locator("app-login-container")
 
@@ -429,14 +466,33 @@ class Automation:
                 await bid_modal.get_by_label("Close", exact=True).click()
                 return target_price, 'skip'
             else:
-                await bid_modal.get_by_label("Bid amount", exact=True).fill(str(bid_price_list[-1]))
+                bid_amount_input = bid_modal.get_by_label("Bid amount", exact=True).nth(0)
+                await bid_amount_input.fill(str(bid_price_list[-1]))
+                # Never submit more than the target. Re-read the field instead
+                # of trusting what we typed, in case the site rewrote it.
+                submitted = self.parse_amount(await bid_amount_input.input_value())
+                if submitted is None or submitted > target_price:
+                    self.show_log(
+                        f'Lot {lot} refusing to submit {submitted} over target {target_price}, closing the modal'
+                    )
+                    await self.click_if_possible(
+                        bid_modal.get_by_label("Close", exact=True).first, 'the close button', lot
+                    )
+                    return target_price, 'skip'
                 self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
-                await page.get_by_label("Click to confirm bid", exact=True).click()
+                # The confirm button also lost its aria-label in the PWA
+                # redesign; match the visible text, keep the old label as a
+                # fallback.
+                confirm_bid_button = bid_modal.locator(
+                    '[aria-label="Click to confirm bid"], '
+                    'app-bid-modal button:has-text("Confirm Bid")'
+                ).first
+                await confirm_bid_button.click()
                 # await bid_modal.get_by_label("Close", exact=True).click()
                 # return 0, 'skip'
                 
                 # Click another confirm when bid price over too much
-                confirmed = await self.confirm_your_bid_modal(bid_modal)
+                confirmed = await self.confirm_your_bid_modal(bid_modal, lot)
                 if confirmed:
                     return bid_price_list[-1], 'success'
                 else:
@@ -823,6 +879,112 @@ class Automation:
         # Add this to this transaction
         return f"Filter bidders successfully"
     
+    def registration_url(self, catalog_url):
+        parsed = urlparse(catalog_url)
+        parts = [part for part in parsed.path.split('/') if part]
+        if len(parts) < 2 or parts[0] != 'catalog':
+            return None
+        return f'{parsed.scheme}://{parsed.netloc}{self.REGISTRATION_PATH}{parts[1]}'
+
+    async def is_registered(self, page):
+        header_button = page.locator(
+            f'app-auction-header app-button:has-text("{self.REGISTERED_BUTTON_TEXT}")'
+        )
+        return await header_button.count() > 0
+
+    async def ensure_registered(self, page):
+        if await self.is_registered(page):
+            return True
+        # Older sites showed an in-page modal instead of the wizard.
+        if await page.locator('app-register-auction').count() > 0:
+            return await self.bot_register_auction(page)
+        return await self.register_auction(page)
+
+    async def wait_enabled(self, locator, timeout):
+        deadline = time.monotonic() + timeout / 1000
+        while time.monotonic() < deadline:
+            try:
+                if await locator.is_enabled():
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+        return False
+
+    async def open_section(self, page):
+        section = page.locator('button.accordion-header[aria-expanded="true"]').first
+        if await section.count() == 0:
+            return None
+        return await section.get_attribute('aria-label')
+
+    async def register_auction(self, page):
+        """Walk the three step registration wizard for the current auction.
+
+        payment -> delivery method -> terms, each one unlocking the submit
+        button at the bottom. This accepts the auction terms and confirms the
+        card already on file, which the site verifies with a temporary hold.
+        """
+        url = self.registration_url(page.url)
+        if not url:
+            self.show_log(f'Cannot work out the registration url from {page.url}')
+            return False
+        self.show_log(f'Not registered for this auction, registering at {url}')
+        await page.goto(url)
+        await page.wait_for_load_state('networkidle')
+
+        # Three sections, with slack in case the site adds one.
+        for _ in range(6):
+            if self.REGISTRATION_PATH not in page.url:
+                break
+            section = await self.open_section(page)
+            if section is None:
+                self.show_log('Registration: no open section left')
+                break
+            if section == 'payment':
+                card = page.locator('input#selected-card-0')
+                if await card.count() == 0:
+                    self.show_log('Registration stopped: no saved card on the account')
+                    return False
+                if not await card.is_checked():
+                    await card.check()
+            elif section == 'delivery-method':
+                await page.locator(self.DELIVERY_METHOD).check()
+            elif section == 'terms':
+                await page.locator('input#terms-input').check()
+            else:
+                self.show_log(f'Registration stopped: unknown section "{section}"')
+                return False
+
+            submit = page.locator('button[type="submit"]').last
+            if not await self.wait_enabled(submit, 5000):
+                self.show_log(f'Registration stopped: submit stayed disabled on "{section}"')
+                return False
+            label = (await submit.inner_text()).strip()
+            await submit.click()
+            self.show_log(f'Registration: filled "{section}", clicked "{label}"')
+
+            # The wizard swaps the open section in place, so wait for that
+            # rather than for a navigation.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                await asyncio.sleep(0.3)
+                if self.REGISTRATION_PATH not in page.url:
+                    break
+                if await self.open_section(page) != section:
+                    break
+
+        if self.REGISTRATION_PATH in page.url:
+            self.show_log('Registration did not finish, still on the registration page')
+            return False
+        # When it is done, and also when the account turns out to be registered
+        # already, the site drops us on some other page, sometimes on the public
+        # hibid.com catalog. Check on the auction page itself.
+        await page.goto(self.bid_link)
+        await page.wait_for_load_state('networkidle')
+        registered = await self.is_registered(page)
+        self.show_log(f'Registration finished, registered={registered}')
+        return registered
+
     async def bot_register_auction(self, page):
         modals = page.locator('app-register-auction')
         if await modals.count() == 0:
@@ -859,28 +1021,49 @@ class Automation:
             # The button was not visible within 4 seconds
             pass
         
-    async def confirm_your_bid_modal(self, bid_modal):
-        confirm_modal = bid_modal.get_by_label("Confirm Your Bid", exact=True)
-        confirm_button = confirm_modal.get_by_label("Click Here to Reconfirm", exact=False)
-        close_button = bid_modal.get_by_label("Close", exact=True)
+    async def confirm_your_bid_modal(self, bid_modal, lot=''):
+        # This one is not guaranteed to render inside the bid modal.
+        confirm_button = bid_modal.page.locator(self.RECONFIRM_BUTTON).first
+        close_button = bid_modal.get_by_label("Close", exact=True).first
         has_bid = False
         try:
-            # Check if the button is visible within (500 ms)
-            is_visible = await confirm_button.is_visible(timeout=500)
-            if is_visible:
-                await confirm_button.click(timeout=100)
-                has_bid = True
-        except TimeoutError:
+            # is_visible() ignores its timeout and answers immediately, so wait
+            # for the reconfirmation to arrive instead of asking straight away.
+            await confirm_button.wait_for(state='visible', timeout=2000)
+            await confirm_button.click(timeout=2000)
+            has_bid = True
+            self.show_log(f'Lot {lot} reconfirmed the bid')
+        except Exception:
             pass
         # previous bid visible
         try:
-            close_is_visible = await close_button.is_visible(timeout=200)
-            if close_is_visible:
-                await close_button.click(timeout=200)
+            if await close_button.is_visible():
+                message = ' '.join((await bid_modal.first.inner_text()).split())[:300]
+                self.show_log(f'Lot {lot} bid not confirmed, modal says: {message}')
+                await close_button.click(timeout=2000)
                 has_bid = False
-        except TimeoutError:
+        except Exception:
             pass
         return has_bid
+    
+    def parse_amount(self, text):
+        # None means "could not read it", which callers must treat as unsafe.
+        match = self.BID_AMOUNT_RE.search(text or '')
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(',', ''))
+        except ValueError:
+            return None
+
+    async def click_if_possible(self, locator, description, lot):
+        try:
+            await locator.click(timeout=2000)
+            return True
+        except Exception:
+            self.show_log(f'Lot {lot} failed to click {description}')
+            return False
+
 
     def file_to_lot_dict(self, filepath):
         with open(filepath, 'r') as f:
