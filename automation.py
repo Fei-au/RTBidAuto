@@ -1069,26 +1069,33 @@ class Automation:
         # This one is not guaranteed to render inside the bid modal.
         confirm_button = bid_modal.page.locator(self.RECONFIRM_BUTTON).first
         close_button = bid_modal.get_by_label("Close", exact=True).first
-        has_bid = False
         try:
             # is_visible() ignores its timeout and answers immediately, so wait
             # for the reconfirmation to arrive instead of asking straight away.
             await confirm_button.wait_for(state='visible', timeout=2000)
             await confirm_button.click(timeout=2000)
-            has_bid = True
             self.show_log(f'lot {lot}：已二次确认')
+        except Exception:
+            pass
+        # An accepted bid closes the modal on its own. Wait for that rather than
+        # sampling once, because the site only closes it after the round trip.
+        try:
+            await bid_modal.first.wait_for(state='hidden', timeout=3000)
+            return True
         except Exception:
             pass
         # previous bid visible
         try:
-            if await close_button.is_visible():
-                message = ' '.join((await bid_modal.first.inner_text()).split())[:300]
-                self.show_log(f'lot {lot}：出价未成功，网站提示：{message}')
-                await close_button.click(timeout=2000)
-                has_bid = False
+            message = ' '.join((await bid_modal.first.inner_text()).split())[:300]
+            self.show_log(f'lot {lot}：出价未成功，网站提示：{message}')
         except Exception:
             pass
-        return has_bid
+        try:
+            if await close_button.is_visible():
+                await close_button.click(timeout=2000)
+        except Exception:
+            pass
+        return False
     
     def parse_amount(self, text):
         # None means "could not read it", which callers must treat as unsafe.
