@@ -449,7 +449,7 @@ class BidGui:
         self.message.config(state="normal")
 
         # Insert log at the end with a new line
-        self.message.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + msg + "\n")
+        self.message.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + str(msg) + "\n")
 
         # Scroll to the end
         self.message.see("end")
@@ -468,7 +468,7 @@ class BidGui:
         self.log_text.config(state="normal")
 
         # Insert log at the end with a new line
-        self.log_text.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + log + "\n")
+        self.log_text.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + str(log) + "\n")
 
         # Scroll to the end
         self.log_text.see("end")
@@ -530,11 +530,12 @@ class BidGui:
             self.save_info()
             return 'Login success! Please collect bid information.'
         except NavigationError as e:
-            self.show_log(e)
-            await self.browser.close()
-        except Exception as e:
-            self.show_log(e)
-            await self.browser.close()
+            self.show_log(f'Login failed: {e}')
+            return 'Login failed, see the log for details.'
+        except Exception:
+            # Never close the CDP browser here: it is the user's own Chrome.
+            self.show_log(traceback.format_exc())
+            return 'Login failed, see the log for details.'
 
     def save_info(self):
         bot_acc = self.bot_acc.get()
