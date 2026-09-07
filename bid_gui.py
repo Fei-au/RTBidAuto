@@ -248,7 +248,7 @@ class BidGui:
             filepath = filedialog.askopenfilename()
             if(filepath):
                 self.automation.file_to_lot_dict(filepath)
-                self.show_message('File import success!')
+                self.show_message('文件已导入')
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
@@ -263,7 +263,7 @@ class BidGui:
                     res = fut.result()
                     self.show_message(res)
                 except Exception as e:
-                    self.show_log(f"Error in login: {str(e)}")
+                    self.show_log(f'登录出错：{e}')
             future.add_done_callback(done_callback)
 
 
@@ -276,7 +276,7 @@ class BidGui:
                 res = fut.result()
                 self.show_message(res)
             except Exception as e:
-                self.show_log(f"Error in collection information: {str(e)}")
+                self.show_log(f'收集 lot 信息出错：{e}')
         future.add_done_callback(done_callback)
 
 
@@ -295,13 +295,13 @@ class BidGui:
             async def sleep_func(diff):
                 if diff < 90:
                     sleep_time = round(90 - diff, 2)
-                    self.show_message(f"Waiting for {sleep_time} seconds before next auto bid round...")
+                    self.show_message(f'等待 {sleep_time} 秒后进入下一轮')
                     await asyncio.sleep(sleep_time)
                 return
 
             def get_info():
                 self.start = datetime.datetime.now()
-                self.show_message(f"Starting infinite bid automation round [ {self.rd} ]...")
+                self.show_message(f'开始第 {self.rd} 轮自动出价')
                 futrue_get_info = asyncio.run_coroutine_threadsafe(
                     self.automation.get_bids_info(
                         self.mng_page, 2,
@@ -317,7 +317,7 @@ class BidGui:
                         else:
                             self.clean_infinite_bid()
                     except Exception as e:
-                        self.show_log(f"Error in getting bid information: {str(e)}")
+                        self.show_log(f'获取出价信息出错：{e}')
                 futrue_get_info.add_done_callback(get_info_done_callback)
 
             def automation():
@@ -339,7 +339,7 @@ class BidGui:
                         self.show_message(res)
                         self.end = datetime.datetime.now()
                         diff = round((self.end - self.start).total_seconds(), 2)
-                        self.show_message(f"Auto bid round [ {self.rd} ] completed in {diff} seconds.")
+                        self.show_message(f'第 {self.rd} 轮完成，用时 {diff} 秒')
                         self.rd += 1
                         if self.automation.is_running:
                                 sleep_future = asyncio.run_coroutine_threadsafe(
@@ -352,7 +352,7 @@ class BidGui:
                         else:
                             self.clean_infinite_bid()
                     except Exception as e:
-                        self.show_log(f"Error in automation: {str(e)}")
+                        self.show_log(f'自动出价出错：{e}')
                 future_automation.add_done_callback(automation_done_callback)
 
             # Start the first get_info call
@@ -383,10 +383,10 @@ class BidGui:
                 def done_callback(fut):
                     try:
                         res = fut.result()
-                        print(f"Automation result: {res}")
+                        
                         self.show_message(res)
                     except Exception as e:
-                        self.show_log(f"Error in automation: {str(e)}")
+                        self.show_log(f'自动出价出错：{e}')
                     finally:
                         # For normal finish
                         self.stop_automation_cleanup()
@@ -413,7 +413,7 @@ class BidGui:
         self.end = None
 
     def stop_automation(self):
-        self.show_log("Stopping automation... Please wait for current operation to complete.")
+        self.show_log('正在停止，等当前这步做完')
         self.stop_automation_cleanup()
 
     def show_message(self, msg):
@@ -458,7 +458,7 @@ class BidGui:
         # bot_data_dir = get_local_dir() / "playwright-bot-data"
         # bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
         if not await self.ensure_bot_chrome():
-            return 'Could not start the bot Chrome, see the log for details.'
+            return 'bot Chrome 启动失败，详见日志'
         try:
             browser = await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
             # Get the first existing context or create one if none exists
@@ -495,7 +495,7 @@ class BidGui:
             # self.bot_page = self.bot_browser.pages[0]
 
             if not await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get()):
-                return 'Bot is not signed in. Sign in to the Chrome window, then press Login Accounts again.'
+                return 'bot 未登录，请在 Chrome 窗口登录后重新点 2. Login Accounts'
             if not self.mng_browser:
                 self.mng_browser = await self.launch_context()
             if not self.mng_page:
@@ -503,10 +503,10 @@ class BidGui:
 
             await self.automation.login_manager(self.mng_page, self.manager_acc.get(), self.manager_pwd.get(), self.management_lot_link.get())
             self.save_info()
-            return 'Login success! Please collect bid information.'
+            return '登录成功，可以收集 lot 信息了'
         except NavigationError as e:
-            self.show_log(f'Login failed: {e}')
-            return 'Login failed, see the log for details.'
+            self.show_log(f'登录失败：{e}')
+            return '登录失败，详见日志'
         except Exception:
             # Never close the CDP browser here: it is the user's own Chrome.
             self.show_log(traceback.format_exc())
@@ -529,7 +529,7 @@ class BidGui:
             return await self.playwright.chromium.launch_persistent_context(
                 manager_data_dir, headless=False, channel="chrome")
         except Exception:
-            self.show_log('Installed Chrome unavailable, falling back to the bundled browser')
+            self.show_log('无法驱动本机 Chrome，改用内置浏览器')
             self.show_log(traceback.format_exc())
             return await self.playwright.chromium.launch_persistent_context(
                 manager_data_dir, headless=False)
@@ -545,15 +545,14 @@ class BidGui:
     async def ensure_bot_chrome(self, port=9222, wait_seconds=30):
         """Open the Chrome the bot attaches to, reusing one that is already up."""
         if await self.cdp_ready(port):
-            self.show_log(f'Bot Chrome already listening on port {port}')
+            self.show_log(f'bot Chrome 已在 {port} 端口运行，直接复用')
             return True
         chrome_path = find_chrome_path()
         if not chrome_path:
-            self.show_log('Google Chrome was not found on this machine. '
-                          'Install Chrome and try again.')
+            self.show_log('没有找到 Google Chrome，请先安装 Chrome')
             return False
         command = chrome_launch_command(chrome_path, port, self.bid_lot_link.get().strip() or None)
-        self.show_log(f'Starting bot Chrome: {chrome_path}')
+        self.show_log('正在启动 bot Chrome')
         try:
             subprocess.Popen(command, close_fds=True)
         except Exception:
@@ -562,9 +561,9 @@ class BidGui:
         for _ in range(wait_seconds * 2):
             await asyncio.sleep(0.5)
             if await self.cdp_ready(port):
-                self.show_log(f'Bot Chrome is listening on port {port}')
+                self.show_log('bot Chrome 已就绪')
                 return True
-        self.show_log(f'Bot Chrome did not open the debugging port {port} within {wait_seconds}s')
+        self.show_log(f'bot Chrome 在 {wait_seconds} 秒内没有打开 {port} 端口')
         return False
 
 
@@ -577,7 +576,7 @@ class BidGui:
             self.automation.is_filter_running = True
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
-            self.show_message("Starting filter bidder automation...")
+            self.show_message('开始竞拍者过滤')
             special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
             self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
@@ -589,14 +588,14 @@ class BidGui:
                 # high_value = self.high_value.get()
                 # high_value_percent = self.high_value_percent.get()
                 self.show_message(result)
-                self.show_message("Start filtering...")
+                self.show_message('过滤运行中')
 
                 self.save_info()
                 result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
                 self.stop_filter_bidder()
                 self.show_message(result2)
             except Exception as e:
-                self.show_log(f"Error in filter bidder: {str(e)}")
+                self.show_log(f'竞拍者过滤出错：{e}')
 
 
     def stop_filter_bidder(self):
@@ -604,7 +603,7 @@ class BidGui:
             self.automation.is_filter_running = False
             self.start_filter.config(state='normal')
             self.stop_filter.config(state='disabled')
-            self.show_message("Filter bidder automation stopped.")
+            self.show_message('竞拍者过滤已停止')
 
 
     async def login_filter_bidder_async(self):
@@ -626,7 +625,7 @@ class BidGui:
     def load_processed_list(self):
         manager_link = self.management_lot_link.get()
         if not manager_link:
-            self.show_message("Please input management link first")
+            self.show_message('请先填写管理端链接')
             return
         self.auction_id = get_auction_id(manager_link)
         lists = load_bidder_registration(self.auction_id)
@@ -639,13 +638,13 @@ class BidGui:
             self.automation.already_blocked_list = []
         self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
         self.blocked_list.set(','.join([str(bidder) for bidder in self.automation.already_blocked_list]))
-        self.show_message('Load processed list success')
+        self.show_message('名单已载入')
 
 
     def check_form(self):
         check_success = False if self.manager_acc.get() == '' or self.manager_pwd.get() == '' else True
         if not check_success:
-            self.show_message("Please input all required fileds")
+            self.show_message('请把带 * 的字段填完整')
         # else:
         #     self.hide_message()
         return check_success

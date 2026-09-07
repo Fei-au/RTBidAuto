@@ -60,7 +60,7 @@ class Automation:
         
     def set_twenty_switch(self, twenty_switch):
         self.twenty_switch = twenty_switch
-        self.show_log(f'Set twenty switch to {self.twenty_switch}')
+        self.show_log('15% 规则：' + ('开' if self.twenty_switch else '关'))
         
     def log_auto_bid(self, func):
         pass
@@ -107,7 +107,7 @@ class Automation:
             self.show_log(self.signed_out_banner(url))
             return False
 
-        self.show_log(f'Login bot...')
+        self.show_log('bot 已就绪')
         return True
 
     async def is_bot_logged_in(self, page, timeout=15000):
@@ -120,16 +120,16 @@ class Automation:
             return False
 
     def signed_out_banner(self, url):
-        rule = "=" * 68
+        rule = "=" * 60
         return f"""
 {rule}
-    THE BOT ACCOUNT IS NOT SIGNED IN
+    bot 账号未登录
 {rule}
-    A Chrome window has been opened at:
+    已经为你打开 Chrome 窗口：
         {url}
 
-    Sign in there with the bot account, then press
-    "2. Login Accounts" again.
+    请在那个窗口里用 bot 账号登录，然后重新点
+    "2. Login Accounts"
 {rule}"""
 
     async def login_manager(self, page, mng_acc, mng_pwd, url):
@@ -137,7 +137,7 @@ class Automation:
         # Check if manager login success
         if(page.url == 'https://my.hibid.com/auctioneer/auctions/current/'):
             await page.goto(url)
-            self.show_log(f'Login manager...')
+            self.show_log('管理端已登录')
             return
         
         await page.locator('[id="auctioneer-logon-username"]').fill(mng_acc)
@@ -155,7 +155,7 @@ class Automation:
         # if 'auctioneer' not in page.url:
         #     raise Exception('Login manager account failed, please restart automation')
         await page.goto(url)
-        self.show_log(f'Login manager...')
+        self.show_log('管理端已登录')
         
     # mode: 1 for static bid, 2 for infinate bid
     async def get_bids_info(self, page, mode):
@@ -228,9 +228,8 @@ class Automation:
                     'second_hand': False,
                 }
             valid_lot_count += 1
-            self.show_log(f'lot: {lot}, data: {self.lot_dict[lot]}')
-        self.show_log(f'Get valid lot info totally: {valid_lot_count}')
-        return "Collect lot info finished"
+        self.show_log(f'已收集 {valid_lot_count} 个 lot 的出价信息')
+        return 'lot 信息收集完成'
         
         # break_flag = False
         # Process the rows in batches
@@ -295,12 +294,12 @@ class Automation:
         #     else:
         #         break_flag = True
         # self.show_log(f'Get valid lot info totally: {valid_lot_count}')
-        # return "Collect lot info finished"
+        # return 'lot 信息收集完成'
             
     # mode: 1 for static bid, 2 for infinate bid
     async def start_automation_async(self, bot_page, mng_page, bot_acc, mng_acc, mode):
         if not self.lot_dict:
-            self.show_log('No lot info collected yet, run Collect Information first')
+            self.show_log('还没有 lot 数据，请先点 3. Collect Information')
             return
         unique_id = str(uuid.uuid4())
         item_log = []
@@ -345,10 +344,10 @@ class Automation:
                         multiplier = 0.15
                         if bid_info.get('second_hand'):
                             multiplier = 0.08
-                            self.show_log(f'Second hand detected for lot: {lot}, use {multiplier} as multiplier')
+                            self.show_log(f'lot {lot}：二手，系数 {multiplier}')
                         if bid_info.get('skipped'):
                             multiplier = 0
-                            self.show_log(f'lot: {lot} skipped 15%')
+                            self.show_log(f'lot {lot}：跳过 15% 规则')
                         target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * multiplier, 2))
                     else:
                         target_price = bid_info['max_bid_price']
@@ -365,14 +364,13 @@ class Automation:
                     else:
                         continue
                 else:
-                    self.show_log(f'No msrp price indication for lot: {lot}')
+                    self.show_log(f'lot {lot}：没有 msrp，跳过')
                     continue
-                print(f'the i the lot: {i+1}, {lot}, {bid_info.get("max_bid_price")}')
                 i += 1
                 await asyncio.sleep(random.random() + 1)  # Add a random delay 1-2s to simulate human behavior
-            except Exception as e:
-                error_details = traceback.format_exc()
-                self.show_log(error_details)
+            except Exception:
+                self.show_log(f'lot {lot}：出价出错，跳过')
+                self.show_log(traceback.format_exc())
                 continue
             try:
                 item_log.append({
@@ -392,11 +390,10 @@ class Automation:
                             "client": bot_acc
                             }
                     text = add_log('/items', data)
-                    self.show_log(f'Log: {text}')
                     item_log.clear()
-            except Exception as e:
-                error_details = traceback.format_exc()
-                self.show_log(error_details)
+            except Exception:
+                self.show_log('上报出价日志失败')
+                self.show_log(traceback.format_exc())
         try:
             if(len(item_log) != 0):
                     data = {
@@ -406,7 +403,6 @@ class Automation:
                             "client": bot_acc
                             }
                     text = add_log('/items', data)
-                    self.show_log(f'Log: {text}')
             transaction_data = {
                                     "transaction_id": unique_id,
                                     "automation_link": self.bid_link,
@@ -421,19 +417,18 @@ class Automation:
                                     "bot_win_increased_price": self.bid_to_bot_max
                                 }
             text = add_log('/transaction', transaction_data)
-            self.show_log(f'Log: {text}')
-        except Exception as e:
-                error_details = traceback.format_exc()
-                self.show_log(error_details)
-        self.show_message(f'Summary of this automation:')
-        self.show_message(f'Customer total win lots: {self.bid_cust_win_count}, price increased by: {self.bid_to_cust_max}')
-        self.show_message(f'Bot total win lots: {self.bid_bot_win_count}, price increased by: {self.bid_to_bot_max}')
+        except Exception:
+                self.show_log('上报本轮汇总失败')
+                self.show_log(traceback.format_exc())
+        self.show_message('本次自动出价汇总')
+        self.show_message(f'按客户委托价成交 {self.bid_cust_win_count} 个，加价合计 {self.bid_to_cust_max}')
+        self.show_message(f'按 15% 规则出价 {self.bid_bot_win_count} 个，加价合计 {self.bid_to_bot_max}')
         # reset statistics
         self.bid_cust_win_count = 0
         self.bid_to_cust_max = 0
         self.bid_bot_win_count = 0
         self.bid_to_bot_max = 0
-        return f"{unique_id} Automation finished"
+        return '本轮自动出价结束'
         
     async def bot_bid(self, page, lot, target_price):
         try:
@@ -444,7 +439,7 @@ class Automation:
             if not self.registered:
                 self.registered = await self.ensure_registered(page)
                 if not self.registered:
-                    self.show_log(f'Lot {lot} skipped: not registered for this auction')
+                    self.show_log(f'lot {lot}：本场拍卖未注册，跳过')
                     return 0, 'skip'
                 # Registering navigates away, so come back to this lot.
                 await page.goto(self.bid_link + f'?q={lot}')
@@ -454,7 +449,7 @@ class Automation:
             # Start bid
             lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")').first
             if await lot_title.count() == 0:
-                self.show_log(f'Lot {lot} not found on the search page, skipping...')
+                self.show_log(f'lot {lot}：搜索页找不到，跳过')
                 return 0, 'skip'
             # HiBid's PWA moved the tile bid button into an <app-button> wrapper
             # with no aria-label, so match the visible text and keep the old
@@ -464,7 +459,7 @@ class Automation:
                 'app-lot-buttons .lot-bid-container button:has(span.lot-bid-text)'
             ).first
             if await bid_button.count() == 0:
-                self.show_log(f'Lot {lot} bid button not found, or already closed, skipping...')
+                self.show_log(f'lot {lot}：没有出价按钮（可能已结束），跳过')
                 return 0, 'skip'
             await bid_button.click()
 
@@ -499,13 +494,13 @@ class Automation:
                 submitted = self.parse_amount(await bid_amount_input.input_value())
                 if submitted is None or submitted > target_price:
                     self.show_log(
-                        f'Lot {lot} refusing to submit {submitted} over target {target_price}, closing the modal'
+                        f'lot {lot}：输入框里是 {submitted}，超过上限 {target_price}，不提交'
                     )
                     await self.click_if_possible(
-                        bid_modal.get_by_label("Close", exact=True).first, 'the close button', lot
+                        bid_modal.get_by_label("Close", exact=True).first, '关闭按钮', lot
                     )
                     return target_price, 'skip'
-                self.show_log(f'Bid lot {lot} to {bid_price_list[-1]}')
+                self.show_log(f'lot {lot}：出价 {bid_price_list[-1]}')
                 # The confirm button also lost its aria-label in the PWA
                 # redesign; match the visible text, keep the old label as a
                 # fallback.
@@ -529,7 +524,7 @@ class Automation:
             # return previous_price, previous_price, 'failed'
             
     async def decline_items(self, bidder_id, page, total_bid_amount_a):
-        self.show_log(f'[{bidder_id}] items are being declined')
+        self.show_log(f'[{bidder_id}] 正在拒绝其全部出价')
         await total_bid_amount_a.click()
         bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
         await page.wait_for_load_state('networkidle')
@@ -551,16 +546,16 @@ class Automation:
             await edit_modal_footer.get_by_text('Save').click()
             # After click save, the whole page will reload, so wait the network
             await page.wait_for_load_state('networkidle')
-        self.show_log(f'[{bidder_id}] all items have been declined')
+        self.show_log(f'[{bidder_id}] 出价已全部拒绝')
         await bid_history_modal.get_by_label('Close').click()
         
     async def block_profile(self, bidder_id, page, bidder_profile_ele):
-        self.show_log(f'[{bidder_id}] profile is being blocked')
+        self.show_log(f'[{bidder_id}] 正在封禁账号')
         bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
         try:
             await bidder_id_ele_a.click()
         except Exception:
-            self.show_log(f'[{bidder_id}] could not open the row, not blocked')
+            self.show_log(f'[{bidder_id}] 无法打开该行，未封禁')
             return False
         await bidder_profile_ele.locator('a[class="bidder-profile"]').click()
         profile_modal_content = page.locator('div#bidder-profile-modal div.modal-content')
@@ -571,7 +566,7 @@ class Automation:
         await profile_modal_content.get_by_label('Close').click()
         self.already_blocked_list.append(bidder_id)
         self.update_block_list(self.already_blocked_list)
-        self.show_log(f'[{bidder_id}] profile has been blocked')
+        self.show_log(f'[{bidder_id}] 已封禁')
         return True
 
     async def wait_for_register_list(self, page, timeout=30000):
@@ -606,7 +601,6 @@ class Automation:
         await bid_history_table.wait_for(state='visible')
         bid_history_trs = bid_history_table.locator('> tr')
         bid_history_trs_count = await bid_history_trs.count()
-        self.show_log(f'[{bidder_id}] total items {bid_history_trs_count}')
         high_value_bid_count = 0
         winning_bid_count = 0
         for j in range(bid_history_trs_count):
@@ -619,13 +613,12 @@ class Automation:
                 continue
             winning_bid_count += 1
             bid_history_max_bid = await bid_tr.locator('td[class="bid-history-max-bid"]').inner_text()
-            self.show_log(f'[{bidder_id}] [lot: {lot_lead}] bid history max bid {bid_history_max_bid}')
             bid_max = float(bid_history_max_bid)
             if bid_max > high_value:
                 high_value_bid_count += 1
             else:
                 continue
-        self.show_log(f'[{bidder_id}] high value wins {high_value_bid_count}, total wins {winning_bid_count}')
+        self.show_log(f'[{bidder_id}] 高价领先 {high_value_bid_count} / 领先总数 {winning_bid_count}')
         await bid_history_modal.get_by_label('Close').click()
         if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= high_value_percent:
             return True
@@ -639,22 +632,21 @@ class Automation:
         # Closing the decline modal reloads the page by itself. Wait for the
         # list to come back rather than guessing how long that takes.
         if not await self.wait_for_register_list(page):
-            self.show_log(f'[{bidder_id}] register list did not come back after declining')
+            self.show_log(f'[{bidder_id}] 拒绝后列表没刷新出来，未封禁')
             return False
         # 2.1.2 Block account, against the row as it stands now
         row = await self.find_bidder_row(page, bidder_id)
         if row is None:
-            self.show_log(f'[{bidder_id}] gone from the list after declining, not blocking')
+            self.show_log(f'[{bidder_id}] 拒绝后已不在列表中，未封禁')
             return False
         if not await self.block_profile(bidder_id=bidder_id, page=page, bidder_profile_ele=row):
             return False
         # 2.1.3 Send log
         try:
             request_res = block_bidder_log(data)
-            self.show_log(f'Log: {request_res}')
-        except Exception as e:
-            error_details = traceback.format_exc()
-            self.show_log(error_details)
+        except Exception:
+            self.show_log(f'[{bidder_id}] 上报封禁日志失败')
+            self.show_log(traceback.format_exc())
         return True
 
     # Force-navigate to refresh_url and wait for it to settle. Used as a recovery
@@ -668,16 +660,15 @@ class Automation:
                 await page.wait_for_load_state('networkidle')
                 landed = (page.url or '').lower()
                 if 'internalservererror' in landed or 'error' in landed:
-                    self.show_log(f'{prefix}force-refresh attempt {attempt}/{max_attempts} landed on error page: {page.url}')
+                    self.show_log(f'{prefix}刷新第 {attempt}/{max_attempts} 次落到了错误页：{page.url}')
                 else:
-                    self.show_log(f'{prefix}page force-refreshed to {refresh_url}')
                     return True
             except Exception:
-                self.show_log(f'{prefix}force-refresh attempt {attempt}/{max_attempts} failed: {traceback.format_exc()}')
+                self.show_log(f'{prefix}刷新第 {attempt}/{max_attempts} 次失败：{traceback.format_exc()}')
             await asyncio.sleep(min(2 ** attempt, 30))
-        self.show_log(f'{prefix}force-refresh gave up after {max_attempts} attempts')
+        self.show_log(f'{prefix}刷新 {max_attempts} 次都失败，放弃')
         return False
-        self.show_log(f'{prefix}force-refresh gave up after {max_attempts} attempts')
+        self.show_log(f'{prefix}刷新 {max_attempts} 次都失败，放弃')
         return False
 
     # Wraps block_acc so that if the post-decline page refresh stalls or lands on
@@ -692,7 +683,7 @@ class Automation:
                                         data=data)
         except Exception as e:
             error_details = traceback.format_exc()
-            self.show_log(f'[{bidder_id}] block_acc failed, force-refreshing page')
+            self.show_log(f'[{bidder_id}] 封禁过程出错，刷新页面继续')
             self.show_log(error_details)
             await self._force_refresh_page(page, refresh_url, context=f'[{bidder_id}]')
             return False
@@ -705,10 +696,8 @@ class Automation:
     async def skip_acc(self, bidder_id, total_bid_amount_a):
         # Skip processed ids
         if bidder_id in self.special_allowed_list:
-            self.show_log(f"[{bidder_id}] in sepcial allowed list, skip")
             return True
         if bidder_id in self.already_blocked_list:
-            self.show_log(f"[{bidder_id}] has already been blocked, skip")
             return True
         # 1. Check bid history total amount
         ct = await total_bid_amount_a.count()
@@ -752,7 +741,6 @@ class Automation:
                 register_list_tbody = register_list_container.locator('table#register-list tbody')
                 trs = register_list_tbody.get_by_role("row")
                 count = await trs.count()
-                self.show_log(f'Total trs in this page {count}')
                 for i in range(count):
                     declined_flag = False
                     if not self.is_filter_running:
@@ -764,14 +752,13 @@ class Automation:
                         bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
                         bidder_id_text = await bidder_id_ele_a.inner_text()
                         bidder_id = bidder_id_text.strip().split(' ')[0]
-                        self.show_log(f"[{bidder_id}] checking...")
                         total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
 
                         # Score
                         score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
                         score = int(score_text)
                         if score >= reputation:
-                            self.show_log(f'[{bidder_id}] score is equal or larger than {reputation}, skipping')
+                            self.show_log(f'[{bidder_id}] 信誉分不低于 {reputation}，本轮结束')
                             round_continue = False
                             break
                         check_count += 1
@@ -785,11 +772,11 @@ class Automation:
                         try:
                             total_bid_amount = float(total_bid_amount_text[1:-1].replace(',', ''))
                         except Exception as e:
-                            self.show_log(f'Get bidder bid history failed, skip')
+                            self.show_log('读取出价记录失败，跳过')
                             continue
                         # 2. If amount is larger than high_value, do further investigate
                         if total_bid_amount > high_value:
-                            self.show_log(f"[{bidder_id}] total bid amount is {total_bid_amount}, futher investigating...")
+                            self.show_log(f"[{bidder_id}] 出价总额 {total_bid_amount}，进一步检查")
                             declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id,
                                                                              page=page,
                                                                              total_bid_amount_a=total_bid_amount_a,
@@ -822,7 +809,7 @@ class Automation:
                             continue
                     except Exception:
                         error_details = traceback.format_exc()
-                        self.show_log(f'Row {i} processing failed, force-refreshing page')
+                        self.show_log(f'第 {i} 行处理失败，刷新页面继续')
                         self.show_log(error_details)
                         await self._force_refresh_page(page, url, context=f'[row {i}]')
                         continue
@@ -842,7 +829,6 @@ class Automation:
                     register_list_tbody = register_list_container.locator('table#register-list tbody')
                     trs = register_list_tbody.get_by_role("row")
                     count = await trs.count()
-                    self.show_log(f'Total trs in this page {count}')
                     for i in range(count):
                         declined_flag = False
                         if not self.is_filter_running:
@@ -854,7 +840,6 @@ class Automation:
                             bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
                             bidder_id_text = await bidder_id_ele_a.inner_text()
                             bidder_id = bidder_id_text.strip().split(' ')[0]
-                            self.show_log(f"[{bidder_id}] checking...")
                             total_bid_amount_a = tr.locator('td.text-center.bids').locator('a[class="lot-bid-history"]')
 
                             check_count += 1
@@ -868,7 +853,7 @@ class Automation:
                             bidder_profile_location = bidder_profile.locator('[class="location"]')
                             location = await bidder_profile_location.inner_text()
                             if "United States" in location:
-                                self.show_log(f"[{bidder_id}] Bidder is from US, blocking...")
+                                self.show_log(f"[{bidder_id}] 美国竞拍者，封禁")
                                 data = {
                                     "transaction_id": transaction_id,
                                     "automation_link": url,
@@ -892,7 +877,7 @@ class Automation:
                                 break
                         except Exception:
                             error_details = traceback.format_exc()
-                            self.show_log(f'Row {i} processing failed, force-refreshing page')
+                            self.show_log(f'第 {i} 行处理失败，刷新页面继续')
                             self.show_log(error_details)
                             await self._force_refresh_page(page, url_state_desc, context=f'[row {i}]')
                             continue
@@ -906,9 +891,9 @@ class Automation:
                 # Every 90 seconds a round
                 time_diff = round((end - start).total_seconds(), 2)
                 if time_diff < 90:
-                    self.show_message(f'Filter bidders round [ {filter_round} ] completed in {time_diff} seconds')
+                    self.show_message(f'过滤第 {filter_round} 轮完成，用时 {time_diff} 秒')
                     sleep_time = round(90 - time_diff, 2)
-                    self.show_message(f'Waiting for {sleep_time} seconds before next filter round...')
+                    self.show_message(f'等待 {sleep_time} 秒后进入下一轮')
                     await asyncio.sleep(sleep_time)
         # TODO: Log this transaction
         try:
@@ -923,7 +908,6 @@ class Automation:
                 "message":"The transaction blocked"
             }
             request_res = filter_bidder_txns(txns_data)
-            self.show_log(f'Log: {request_res}')
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
@@ -932,7 +916,7 @@ class Automation:
         save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
         
         # Add this to this transaction
-        return f"Filter bidders successfully"
+        return '竞拍者过滤完成'
     
     def registration_url(self, catalog_url):
         parsed = urlparse(catalog_url)
@@ -981,9 +965,9 @@ class Automation:
         """
         url = self.registration_url(page.url)
         if not url:
-            self.show_log(f'Cannot work out the registration url from {page.url}')
+            self.show_log(f'无法从 {page.url} 推出注册页地址')
             return False
-        self.show_log(f'Not registered for this auction, registering at {url}')
+        self.show_log('本场拍卖未注册，开始自动注册')
         await page.goto(url)
         await page.wait_for_load_state('networkidle')
 
@@ -993,12 +977,12 @@ class Automation:
                 break
             section = await self.open_section(page)
             if section is None:
-                self.show_log('Registration: no open section left')
+                self.show_log('注册：没有待填写的步骤了')
                 break
             if section == 'payment':
                 card = page.locator('input#selected-card-0')
                 if await card.count() == 0:
-                    self.show_log('Registration stopped: no saved card on the account')
+                    self.show_log('注册中止：账号里没有在档银行卡')
                     return False
                 if not await card.is_checked():
                     await card.check()
@@ -1007,16 +991,16 @@ class Automation:
             elif section == 'terms':
                 await page.locator('input#terms-input').check()
             else:
-                self.show_log(f'Registration stopped: unknown section "{section}"')
+                self.show_log(f'注册中止：遇到未知步骤 {section}')
                 return False
 
             submit = page.locator('button[type="submit"]').last
             if not await self.wait_enabled(submit, 5000):
-                self.show_log(f'Registration stopped: submit stayed disabled on "{section}"')
+                self.show_log(f'注册中止：{section} 这步的提交按钮一直不可点')
                 return False
             label = (await submit.inner_text()).strip()
             await submit.click()
-            self.show_log(f'Registration: filled "{section}", clicked "{label}"')
+            self.show_log(f'注册：{section} 已完成')
 
             # The wizard swaps the open section in place, so wait for that
             # rather than for a navigation.
@@ -1029,7 +1013,7 @@ class Automation:
                     break
 
         if self.REGISTRATION_PATH in page.url:
-            self.show_log('Registration did not finish, still on the registration page')
+            self.show_log('注册未完成，仍停在注册页')
             return False
         # When it is done, and also when the account turns out to be registered
         # already, the site drops us on some other page, sometimes on the public
@@ -1037,7 +1021,7 @@ class Automation:
         await page.goto(self.bid_link)
         await page.wait_for_load_state('networkidle')
         registered = await self.is_registered(page)
-        self.show_log(f'Registration finished, registered={registered}')
+        self.show_log('注册完成' if registered else '注册流程走完，但页面仍显示未注册')
         return registered
 
     async def bot_register_auction(self, page):
@@ -1056,13 +1040,10 @@ class Automation:
         refresh_container = page.locator('app-live-lot-refresh')
         refresh_checkbox = refresh_container.locator('input[type="checkbox"]')
         if await refresh_checkbox.count() == 0:
-            self.show_log('Refresh checkbox not found on the page')
             return
         if await refresh_checkbox.is_checked():
             await refresh_checkbox.uncheck()
-            self.show_log('Unticked the refresh checkbox')
-        else:
-            self.show_log('Refresh checkbox is already unticked')
+            self.show_log('已关闭页面自动刷新')
         
     # Sometimes, there is subscrition modal, we need to close it. modal role is dialog, button with text 'No thanks'
     async def clear_subscribe_modal(self, page):
@@ -1087,14 +1068,14 @@ class Automation:
             await confirm_button.wait_for(state='visible', timeout=2000)
             await confirm_button.click(timeout=2000)
             has_bid = True
-            self.show_log(f'Lot {lot} reconfirmed the bid')
+            self.show_log(f'lot {lot}：已二次确认')
         except Exception:
             pass
         # previous bid visible
         try:
             if await close_button.is_visible():
                 message = ' '.join((await bid_modal.first.inner_text()).split())[:300]
-                self.show_log(f'Lot {lot} bid not confirmed, modal says: {message}')
+                self.show_log(f'lot {lot}：出价未成功，网站提示：{message}')
                 await close_button.click(timeout=2000)
                 has_bid = False
         except Exception:
@@ -1116,7 +1097,7 @@ class Automation:
             await locator.click(timeout=2000)
             return True
         except Exception:
-            self.show_log(f'Lot {lot} failed to click {description}')
+            self.show_log(f'lot {lot}：点击{description}失败')
             return False
 
 
@@ -1125,4 +1106,4 @@ class Automation:
             df = pd.read_csv(f)
             df['lot'] = df['lot'].astype(str)  # Convert the 'lot' column to string type
             self.lot_dict = df.set_index('lot')[['msrp_price', 'skipped', 'second_hand']].to_dict('index')
-            self.show_log(f'Totally items from uploaded file: {len(self.lot_dict)}')
+            self.show_log(f'文件已导入，共 {len(self.lot_dict)} 个 lot')
