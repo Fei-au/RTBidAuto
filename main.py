@@ -146,9 +146,12 @@ if __name__ == '__main__':
     extDataDir = os.getcwd()
     if getattr(sys, 'frozen', False):
         extDataDir = sys._MEIPASS
-        # Only the bundle ships its own browsers. Running from source, leave the
-        # path alone so Playwright looks where `playwright install` puts them.
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(extDataDir, "playwright-browsers")
+        # Browsers are only bundled when the build shipped them. Otherwise leave
+        # the path alone: the manager context uses the installed Chrome, and
+        # from source Playwright looks where `playwright install` puts them.
+        bundled_browsers = os.path.join(extDataDir, "playwright-browsers")
+        if os.path.isdir(bundled_browsers):
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = bundled_browsers
     load_dotenv(dotenv_path=os.path.join(extDataDir, '.env'))
 
     root = Tk()

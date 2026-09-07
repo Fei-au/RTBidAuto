@@ -65,6 +65,64 @@ def get_auction_id(mng_link):
 def get_local_dir():
     return app_data_path
 
+
+CHROME_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+
+
+def find_chrome_path():
+    """Locate the installed Google Chrome, or None.
+
+    Chrome registers its own location under App Paths, which holds wherever the
+    user installed it, so try the registry before guessing directories.
+    """
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+    if winreg is not None:
+        views = [
+            (winreg.HKEY_CURRENT_USER, 0),
+            (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+            (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY),
+        ]
+        for hive, view in views:
+            try:
+                with winreg.OpenKey(hive, CHROME_APP_PATHS_KEY, 0, winreg.KEY_READ | view) as key:
+                    path = winreg.QueryValue(key, '')
+            except OSError:
+                continue
+            if path and os.path.isfile(path):
+                return path
+    for base in (os.environ.get('PROGRAMFILES'),
+                 os.environ.get('PROGRAMFILES(X86)'),
+                 os.environ.get('LOCALAPPDATA')):
+        if not base:
+            continue
+        candidate = os.path.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe')
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def bot_chrome_profile_dir():
+    profile = app_data_path / 'chrome-bot-profile'
+    profile.mkdir(exist_ok=True)
+    return profile
+
+
+def chrome_launch_command(chrome_path, port, url=None):
+    """The command line that opens Chrome with the debugging port on its own profile."""
+    command = [
+        chrome_path,
+        f'--remote-debugging-port={port}',
+        f'--user-data-dir={bot_chrome_profile_dir()}',
+        '--no-first-run',
+        '--no-default-browser-check',
+    ]
+    if url:
+        command.append(url)
+    return command
+
         
 LOG_BACK = f'{os.getenv("LOG_BACK")}/logs'
 IS_ONLINE = os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"

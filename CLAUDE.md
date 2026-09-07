@@ -12,13 +12,13 @@ Env vars are loaded from `.env` via `python-dotenv`. Relevant keys: `LOG_BACK` (
 
 ## Build
 
-PyInstaller one-file with bundled Playwright browsers:
+PyInstaller one-file. Browsers are not bundled: both browsers come from the machine's own Google Chrome, so the exe stays small and the user installs nothing.
 
 ```powershell
-pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
+pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." main.py
 ```
 
-`main.py` rewires `PLAYWRIGHT_BROWSERS_PATH` to the bundled folder when frozen (`sys._MEIPASS`).
+To ship Playwright's own browser as a fallback, install it into `playwright-browsers/` first (`PLAYWRIGHT_BROWSERS_PATH=<repo>/playwright-browsers python -m playwright install chromium`) and add `--add-data "playwright-browsers;playwright-browsers"`. `main.py` points `PLAYWRIGHT_BROWSERS_PATH` at that folder when frozen and the folder is actually there; that payload is ~326 MB, so prefer `--onedir` when including it.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;."
 
 ## Browser connection
 
-The bot account uses an existing Chrome instance over CDP (`http://localhost:9222`). The user must launch Chrome with `--remote-debugging-port=9222 --user-data-dir=...` and log in to the auction site manually first (use the auctioneer subdomain, e.g. `company.bid.com`, not `www.bid.com`). The manager account uses Playwright's own persistent context at `%LOCALAPPDATA%/AutoBid/playwright-mng-data`.
+The bot account drives the machine's own Chrome over CDP (`http://localhost:9222`). `BidGui.ensure_bot_chrome` reuses a Chrome already listening on that port; otherwise it locates `chrome.exe` (registry App Paths first, then the usual install folders) and starts it on a dedicated profile at `%LOCALAPPDATA%/AutoBid/chrome-bot-profile` with the bid link open. The bot account has to be signed in there once — the profile keeps the session — and `login_bot` checks for the `.welcome-label` header, printing a banner that asks for a sign-in when it is missing. Use the auctioneer subdomain (e.g. `company.bid.com`, not `www.bid.com`). The manager account uses a persistent context at `%LOCALAPPDATA%/AutoBid/playwright-mng-data`, driving the installed Chrome via `channel="chrome"` and falling back to Playwright's own browser if that fails.
 
 ## Bidding logic ([automation.py:253](automation.py:253))
 

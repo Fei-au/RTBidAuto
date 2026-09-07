@@ -6,7 +6,10 @@ import threading
 import asyncio
 from exceptions import NavigationError
 from automation import Automation
-from tools import load_credentials, save_credentials, get_local_dir
+from tools import (load_credentials, save_credentials, get_local_dir,
+                   find_chrome_path, chrome_launch_command)
+import subprocess
+import httpx
 import os
 import traceback
 import random
@@ -454,6 +457,8 @@ class BidGui:
             self.playwright = await async_playwright().start()
         # bot_data_dir = get_local_dir() / "playwright-bot-data"
         # bot_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
+        if not await self.ensure_bot_chrome():
+            return 'Could not start the bot Chrome, see the log for details.'
         try:
             browser = await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
             # Get the first existing context or create one if none exists
@@ -489,7 +494,8 @@ class BidGui:
             # )
             # self.bot_page = self.bot_browser.pages[0]
 
-            await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get())
+            if not await self.automation.login_bot(self.bot_page, self.bot_acc.get(), self.bot_pwd.get(), self.bid_lot_link.get()):
+                return 'Bot is not signed in. Sign in to the Chrome window, then press Login Accounts again.'
             if not self.mng_browser:
                 self.mng_browser = await self.launch_context()
             if not self.mng_page:
@@ -519,8 +525,47 @@ class BidGui:
     async def launch_context(self):
         manager_data_dir = get_local_dir() / "playwright-mng-data"
         manager_data_dir.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
-        context = await self.playwright.chromium.launch_persistent_context(manager_data_dir, headless=False)
-        return context
+        try:
+            return await self.playwright.chromium.launch_persistent_context(
+                manager_data_dir, headless=False, channel="chrome")
+        except Exception:
+            self.show_log('Installed Chrome unavailable, falling back to the bundled browser')
+            self.show_log(traceback.format_exc())
+            return await self.playwright.chromium.launch_persistent_context(
+                manager_data_dir, headless=False)
+
+    async def cdp_ready(self, port, timeout=1.0):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                res = await client.get(f'http://localhost:{port}/json/version')
+                return res.status_code == 200
+        except Exception:
+            return False
+
+    async def ensure_bot_chrome(self, port=9222, wait_seconds=30):
+        """Open the Chrome the bot attaches to, reusing one that is already up."""
+        if await self.cdp_ready(port):
+            self.show_log(f'Bot Chrome already listening on port {port}')
+            return True
+        chrome_path = find_chrome_path()
+        if not chrome_path:
+            self.show_log('Google Chrome was not found on this machine. '
+                          'Install Chrome and try again.')
+            return False
+        command = chrome_launch_command(chrome_path, port, self.bid_lot_link.get().strip() or None)
+        self.show_log(f'Starting bot Chrome: {chrome_path}')
+        try:
+            subprocess.Popen(command, close_fds=True)
+        except Exception:
+            self.show_log(traceback.format_exc())
+            return False
+        for _ in range(wait_seconds * 2):
+            await asyncio.sleep(0.5)
+            if await self.cdp_ready(port):
+                self.show_log(f'Bot Chrome is listening on port {port}')
+                return True
+        self.show_log(f'Bot Chrome did not open the debugging port {port} within {wait_seconds}s')
+        return False
 
 
     def start_filter_bidder(self):

@@ -102,10 +102,36 @@ class Automation:
         # await page.goto(url)
         # await page.wait_for_load_state('networkidle')
         await self.untick_refresh(page)
-        
+
+        if not await self.is_bot_logged_in(page):
+            self.show_log(self.signed_out_banner(url))
+            return False
+
         self.show_log(f'Login bot...')
-        return
-        
+        return True
+
+    async def is_bot_logged_in(self, page, timeout=15000):
+        # The header greets the account by name once the session is live.
+        welcome = page.locator('.welcome-label').first
+        try:
+            await welcome.wait_for(state='visible', timeout=timeout)
+            return True
+        except Exception:
+            return False
+
+    def signed_out_banner(self, url):
+        rule = "=" * 68
+        return f"""
+{rule}
+    THE BOT ACCOUNT IS NOT SIGNED IN
+{rule}
+    A Chrome window has been opened at:
+        {url}
+
+    Sign in there with the bot account, then press
+    "2. Login Accounts" again.
+{rule}"""
+
     async def login_manager(self, page, mng_acc, mng_pwd, url):
         await page.goto('https://my.hibid.com/auctioneer/auctions/current/')
         # Check if manager login success
