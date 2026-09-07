@@ -104,6 +104,7 @@ class Automation:
         await self.untick_refresh(page)
 
         if not await self.is_bot_logged_in(page):
+            self.show_log(f'登录检查未通过，当前页面：{page.url}')
             self.show_log(self.signed_out_banner(url))
             return False
 
@@ -111,13 +112,20 @@ class Automation:
         return True
 
     async def is_bot_logged_in(self, page, timeout=15000):
-        # The header greets the account by name once the session is live.
-        welcome = page.locator('.welcome-label').first
-        try:
-            await welcome.wait_for(state='visible', timeout=timeout)
-            return True
-        except Exception:
-            return False
+        # The header greets the account by name once the session is live. Look
+        # for it in the DOM rather than on screen: that header sits in a
+        # `d-none d-md-block` wrapper, so a Chrome window narrower than 768px
+        # hides it, and a narrow window does not mean signed out.
+        deadline = time.monotonic() + timeout / 1000
+        while True:
+            try:
+                if await page.locator('.welcome-label').count() > 0:
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.5)
 
     def signed_out_banner(self, url):
         rule = "=" * 60
