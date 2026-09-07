@@ -18,28 +18,38 @@ back.
 
 ## Picking the version
 
-Versions look like `2.13`, `2.14`. Each build that contains changes gets the next
-number; rebuilding the same code keeps its number so two different exes never share one.
+Versions look like `2.13`, `2.14`. **A version number stands for one finished change,
+not for one commit.** While a change is still being fixed — the last exe went out and
+came back broken, or it was never handed over at all — rebuild under the same number.
+Bump only once the previous version is genuinely done.
 
-Every successful build is tagged, so the tag says what was last shipped and from which
-commit:
+This matters because the operator identifies builds by that number. Burning a new one on
+every fix leaves a trail of numbers that were never really shipped, and makes "which
+version are you running?" a useless question.
+
+Every successful build is tagged, so the newest tag says what the current number is and
+which commit it was built from:
 
 ```bash
-cd "E:/Code/RuitoTrading/RTBidAuto" && git tag --list "v*" --sort=-v:refname | head -3
+cd "E:/Code/RuitoTrading/RTBidAuto" && git tag --list "v*" --sort=-v:refname | head -3 && git log $(git tag --list "v*" --sort=-v:refname | head -1)..HEAD --oneline
 ```
 
-Work out the version like this:
+Then decide:
 
-- **No tags yet** (first build under this scheme): read the highest number from the
-  leftover `Auto Bid<version>.spec` files or from `dist/`, and bump that.
-- **A tag exists**: if `git log <tag>..HEAD --oneline` shows commits, or the working
-  tree is dirty, there are changes — bump the last digit (`2.14` → `2.15`).
-- **Nothing changed since the tag** — same commit, clean tree — say so rather than
-  producing a second exe of identical code. Rebuild under the same version only if the
-  user wants a fresh copy of the file.
+- **The user named a version** — use theirs. They may be matching something already sent
+  out, or deliberately reusing a number.
+- **No commits since the tag and a clean tree** — nothing changed. Say so instead of
+  producing a second exe of identical code.
+- **There are changes** — ask whether the tagged version is finished, unless the
+  conversation already makes it obvious. Still iterating on it (the previous exe failed,
+  or never left the machine) means the same number; a version that was shipped and works
+  means the next one.
 
-When the user names a version themselves, use theirs; they may be matching something
-already sent out.
+Reusing a number means the tag has to move to the new commit:
+
+```bash
+cd "E:/Code/RuitoTrading/RTBidAuto" && git tag -f v<version> && git push -f origin v<version>
+```
 
 ## Before building
 
