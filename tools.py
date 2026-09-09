@@ -124,10 +124,14 @@ def chrome_launch_command(chrome_path, port, url=None):
     return command
 
         
-LOG_BACK = f'{os.getenv("LOG_BACK")}/logs'
-IS_ONLINE = os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"
+def is_online():
+    # Read at call time. As a module-level constant this froze before .env was
+    # loaded, which silently turned every log below into a no-op.
+    return os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"
+
+
 def add_log(path, data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs{path}', 
         json=data)
@@ -137,7 +141,7 @@ def add_log(path, data):
         return f"Warning: {response.status_code} - {response.text}"
     
 def filter_bidder_txns(data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/filter_bidder_txns', json=data)
     if response.status_code == 200:
@@ -146,7 +150,7 @@ def filter_bidder_txns(data):
         return f"Warning: {response.status_code} - {response.text}"
     
 def block_bidder_log(data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/block_bidder_log', json=data)
     if response.status_code == 200:

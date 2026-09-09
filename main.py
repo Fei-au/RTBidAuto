@@ -1,8 +1,22 @@
 import os
 import sys
+from dotenv import load_dotenv
+
+# The .env has to be loaded before the project modules are imported: they read
+# the environment at import time, so loading it further down would be too late.
+extDataDir = os.getcwd()
+if getattr(sys, 'frozen', False):
+    extDataDir = sys._MEIPASS
+    # Browsers are only bundled when the build shipped them. Otherwise leave
+    # the path alone: the manager context uses the installed Chrome, and
+    # from source Playwright looks where `playwright install` puts them.
+    bundled_browsers = os.path.join(extDataDir, "playwright-browsers")
+    if os.path.isdir(bundled_browsers):
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = bundled_browsers
+load_dotenv(dotenv_path=os.path.join(extDataDir, '.env'))
+
 from tkinter import *
 from bid_gui import BidGui
-from dotenv import load_dotenv
 
 
 '''
@@ -142,17 +156,6 @@ if __name__ == '__main__':
     # else:
     #     env_file = f".env.{ENVFILE}"
     # load_dotenv(dotenv_path=env_file)
-
-    extDataDir = os.getcwd()
-    if getattr(sys, 'frozen', False):
-        extDataDir = sys._MEIPASS
-        # Browsers are only bundled when the build shipped them. Otherwise leave
-        # the path alone: the manager context uses the installed Chrome, and
-        # from source Playwright looks where `playwright install` puts them.
-        bundled_browsers = os.path.join(extDataDir, "playwright-browsers")
-        if os.path.isdir(bundled_browsers):
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = bundled_browsers
-    load_dotenv(dotenv_path=os.path.join(extDataDir, '.env'))
 
     root = Tk()
     BidGui(root)
