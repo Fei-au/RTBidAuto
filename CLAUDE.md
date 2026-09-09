@@ -26,6 +26,7 @@ To ship Playwright's own browser as a fallback, install it into `playwright-brow
 - [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
 - [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `special_allowed_list`, `already_blocked_list`).
 - [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), per-auction bidder lists (`bidder_registration_<auction_id>.json`), URL helpers, and remote log POSTs gated on `IS_ONLINE`.
+- [config.py](config.py) — Backend-controlled flags, polled on a daemon thread every 5 minutes.
 - [exceptions.py](exceptions.py) — `NavigationError`.
 
 ## Browser connection
@@ -51,7 +52,11 @@ Loops every 90s. `special_allowed_list` and `already_blocked_list` are persisted
 
 ## Logging
 
-`tools.add_log` / `block_bidder_log` / `filter_bidder_txns` POST to `${LOG_BACK}/logs/...`. All become no-ops when `IS_ONLINE != "TRUE"`.
+`tools.add_log` / `block_bidder_log` / `filter_bidder_txns` POST to `${LOG_BACK}/logs/...`, and become no-ops when `config.is_online()` is false.
+
+That switch is answered by the backend, not by the build: `GET ${LOG_BACK}/config/client?client=<MNG_ACC>` returns `{"is_online": ...}`, so an install can be turned off without shipping a new exe. `IS_ONLINE` in `.env` is only the fallback until the backend has answered. A backend that cannot be reached leaves the last answer standing — and cannot receive logs either way, since it is the same host — and the fetch never blocks bidding (5s timeout, daemon thread).
+
+`LOG_BACK` itself stays in `.env` — it is what tells the client where to ask.
 
 ## Conventions
 
