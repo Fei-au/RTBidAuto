@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 import requests
 import httpx
+# The switch lives on the backend so it can be flipped without a new build;
+# .env is only the fallback. Read at call time, never frozen at import.
+from config import is_online
 
 
 def get_upper_level_url(url):
@@ -124,12 +127,6 @@ def chrome_launch_command(chrome_path, port, url=None):
     return command
 
         
-def is_online():
-    # Read at call time. As a module-level constant this froze before .env was
-    # loaded, which silently turned every log below into a no-op.
-    return os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"
-
-
 def add_log(path, data):
     if not is_online():
         return "Offline mode - log not sent"

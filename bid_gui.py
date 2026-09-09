@@ -17,6 +17,7 @@ import datetime
 import time
 from urllib.parse import urlparse
 from tools import load_bidder_registration, get_auction_id
+import config
 
 
 
@@ -228,6 +229,11 @@ class BidGui:
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self.start_event_loop, daemon=True)
         self.loop_thread.start()
+
+        # Keep the backend-controlled flags fresh on their own daemon thread. It
+        # never blocks the UI, and a backend we cannot reach leaves the last
+        # known answer in force.
+        config.start_background_refresh()
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
