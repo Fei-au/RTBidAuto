@@ -9,7 +9,7 @@ import os
 import uuid
 import traceback
 import random
-from playwright.async_api import Page
+from playwright.async_api import Page, Error as PlaywrightError
 import time
 
     
@@ -1017,7 +1017,13 @@ class Automation:
                 await asyncio.sleep(0.3)
                 if self.REGISTRATION_PATH not in page.url:
                     break
-                if await self.open_section(page) != section:
+                try:
+                    if await self.open_section(page) != section:
+                        break
+                except PlaywrightError:
+                    # The last step navigates away; if that lands between the
+                    # URL check and this query, the page is already leaving.
+                    await page.wait_for_load_state('networkidle')
                     break
 
         if self.REGISTRATION_PATH in page.url:
