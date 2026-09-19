@@ -154,5 +154,21 @@ def block_bidder_log(data):
         return response.text
     else:
         return f"Warning: {response.status_code} - {response.text}"
+
+
+def upload_log_text(text, filename, timeout=30):
+    """Upload text as a .log file to ${LOG_BACK}/s3/upload.
+
+    Same endpoint rt-af-controller uses. The text is sent straight from memory,
+    nothing is written to disk. Raises on failure so the caller can report it.
+    """
+    response = requests.post(
+        f'{os.getenv("LOG_BACK").rstrip("/")}/s3/upload',
+        files={"file": (filename, text.encode("utf-8"), "text/plain")},
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"{response.status_code} - {response.text}")
+    return response.text
     
     

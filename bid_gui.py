@@ -16,7 +16,7 @@ import random
 import datetime
 import time
 from urllib.parse import urlparse
-from tools import load_bidder_registration, get_auction_id
+from tools import load_bidder_registration, get_auction_id, upload_log_text
 import config
 
 
@@ -161,7 +161,7 @@ class BidGui:
         # Registration filter buttons
         self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
         self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
-        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
+        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.on_stop_filter_click, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
 
         # Msg area setup
@@ -421,6 +421,33 @@ class BidGui:
     def stop_automation(self):
         self.show_log('正在停止，等当前这步做完')
         self.stop_automation_cleanup()
+        self.upload_log('bid')
+
+    def upload_log(self, kind):
+        """Upload what the log box holds right now, on its own thread.
+
+        Only the log box, not the message box. Gated on the same backend switch
+        as the other remote logs.
+        """
+        if not config.is_online():
+            return
+        text = self.log_text.get('1.0', 'end').rstrip()
+        if not text:
+            return
+        auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'autobid_{kind}_{auction_id}_{timestamp}.log'
+
+        def worker():
+            try:
+                upload_log_text(text, filename)
+                msg = f'日志已上传：{filename}'
+            except Exception as e:
+                msg = f'日志上传失败：{e}'
+            # Back onto the Tk thread before touching the widget.
+            self.log_text.after(0, self.show_log, msg)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def show_message(self, msg):
         # Enable text widget to insert new msg
@@ -603,6 +630,10 @@ class BidGui:
             except Exception as e:
                 self.show_log(f'竞拍者过滤出错：{e}')
 
+
+    def on_stop_filter_click(self):
+        self.stop_filter_bidder()
+        self.upload_log('filter')
 
     def stop_filter_bidder(self):
         if self.automation.is_filter_running:

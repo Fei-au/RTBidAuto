@@ -58,6 +58,8 @@ That switch is answered by the backend, not by the build: `GET ${LOG_BACK}/confi
 
 `LOG_BACK` itself stays in `.env` — it is what tells the client where to ask.
 
+Clicking **Stop Automation** or **Stop Filter Bidder** uploads the log box (right-hand pane only, not the message box) as `autobid_<bid|filter>_<auction_id>_<timestamp>.log` to `${LOG_BACK}/s3/upload` — the same endpoint rt-af-controller uses. It is sent from memory on a daemon thread, gated on the same `is_online()` switch, and captures the box as it is at the click; lines written while the current step winds down are not in it.
+
 ## Conventions
 
 - Async work runs on `BidGui.loop` (background thread); never block it from Tk callbacks — schedule with `run_coroutine_threadsafe` and use `add_done_callback` to update UI.
