@@ -1,7 +1,9 @@
 import asyncio
 import re
 from urllib.parse import urlparse
-from tools import get_upper_level_url, add_log, save_bidder_registration, block_bidder_log, filter_bidder_txns
+from tools import (get_upper_level_url, add_log, save_bidder_registration, load_bidder_registration,
+                   block_bidder_log, filter_bidder_txns, fetch_bidder_registration,
+                   record_blocked_bidder, save_allowed_bidders)
 import pandas as pd
 from datetime import datetime, timezone
 import requests
@@ -50,6 +52,9 @@ class Automation:
         self.is_filter_running = False
         self.special_allowed_list = []
         self.already_blocked_list = []
+        # Which auction and account the running filter records its blocks under
+        self.filter_auction_id = None
+        self.filter_client = None
         pass
     
     def stop_automation(self):
@@ -572,10 +577,72 @@ class Automation:
         profile_saved_modal = page.locator('div[id="bidder-profile-saved-modal"]')
         await profile_saved_modal.get_by_label('Close').click()
         await profile_modal_content.get_by_label('Close').click()
-        self.already_blocked_list.append(bidder_id)
-        self.update_block_list(self.already_blocked_list)
+        await self.record_block(bidder_id)
         self.show_log(f'[{bidder_id}] 已封禁')
         return True
+
+    async def record_block(self, bidder_id):
+        """Write one block down right away, locally and to the backend.
+
+        Never waits for the filter to stop: a closed window or a crash would
+        lose every block of the run.
+        """
+        self.already_blocked_list.append(bidder_id)
+        self.update_block_list(self.already_blocked_list)
+        auction_id = self.filter_auction_id
+        try:
+            save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
+        except Exception:
+            self.show_log(f'[{bidder_id}] 本机名单保存失败')
+            self.show_log(traceback.format_exc())
+        try:
+            await asyncio.to_thread(record_blocked_bidder, auction_id, bidder_id, self.filter_client)
+        except Exception:
+            self.show_log(f'[{bidder_id}] 封禁名单写入线上失败，已存本机')
+            self.show_log(traceback.format_exc())
+
+    async def load_bidder_lists(self, auction_id, client=None):
+        """The auction's lists as (allowed, blocked), the backend's merged with this machine's.
+
+        The backend's allowed list wins, since it is what the operator last
+        saved from any machine. Blocks are only ever added, so both sides count,
+        and blocks only this machine knows of (a failed upload, or a file from
+        before the backend kept these lists) are sent up.
+        """
+        local = load_bidder_registration(auction_id) or {}
+        local_allowed = [str(b) for b in local.get("special_allowed_list", []) if str(b).strip()]
+        local_blocked = [str(b) for b in local.get("already_blocked_list", []) if str(b).strip()]
+        try:
+            remote = await asyncio.to_thread(fetch_bidder_registration, auction_id)
+        except Exception:
+            self.show_log('读取线上名单失败，只用本机名单')
+            self.show_log(traceback.format_exc())
+            remote = None
+        if remote is None:
+            allowed = local_allowed
+            blocked = [b for b in local_blocked if b not in allowed]
+            return allowed, blocked
+        allowed = list(remote.get("special_allowed_list", []))
+        remote_blocked = list(remote.get("already_blocked_list", []))
+        blocked = remote_blocked + [b for b in local_blocked if b not in remote_blocked]
+        blocked = [b for b in dict.fromkeys(blocked) if b not in allowed]
+        for bidder_id in [b for b in blocked if b not in remote_blocked]:
+            try:
+                await asyncio.to_thread(record_blocked_bidder, auction_id, bidder_id, client)
+            except Exception:
+                self.show_log(f'[{bidder_id}] 本机封禁记录上传失败')
+        return allowed, blocked
+
+    async def save_allowed_list(self, auction_id, client=None):
+        """Store the allowed list and drop those bidders from the blocked list."""
+        self.already_blocked_list = [b for b in self.already_blocked_list if b not in self.special_allowed_list]
+        self.update_block_list(self.already_blocked_list)
+        save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
+        try:
+            await asyncio.to_thread(save_allowed_bidders, auction_id, self.special_allowed_list, client)
+        except Exception:
+            self.show_log('允许名单写入线上失败，已存本机')
+            self.show_log(traceback.format_exc())
 
     async def wait_for_register_list(self, page, timeout=30000):
         table = page.locator('div.register-list-container table#register-list tbody')
@@ -731,6 +798,8 @@ class Automation:
             domain = page.url.split('?')[0]
             url = domain + query
             url_state_desc = domain + state_query
+        self.filter_auction_id = auction_id
+        self.filter_client = mng_acc
         filter_round = 0
         transaction_id = str(uuid.uuid4())
         block_count = 0
@@ -919,7 +988,8 @@ class Automation:
         except Exception as e:
             error_details = traceback.format_exc()
             self.show_log(error_details)
-        # Save special and blocked list locally
+        # Each block was already saved as it happened; this only settles the
+        # local file once more on a clean stop.
         self.already_blocked_list = [entry for entry in self.already_blocked_list if entry not in self.special_allowed_list]
         save_bidder_registration(auction_id, self.special_allowed_list, self.already_blocked_list)
         

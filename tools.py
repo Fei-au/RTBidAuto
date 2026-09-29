@@ -156,6 +156,47 @@ def block_bidder_log(data):
         return f"Warning: {response.status_code} - {response.text}"
 
 
+REGISTRATION_TIMEOUT = 10
+
+
+def _registration_url(auction_id, suffix=''):
+    return f'{os.getenv("LOG_BACK").rstrip("/")}/bidder_registration/{auction_id}{suffix}'
+
+
+def fetch_bidder_registration(auction_id):
+    """The auction's shared lists from the backend (MongoDB), or None when offline.
+
+    Raises on failure so the caller can fall back to the local file.
+    """
+    if not is_online():
+        return None
+    response = requests.get(_registration_url(auction_id), timeout=REGISTRATION_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def record_blocked_bidder(auction_id, bidder_id, client=None):
+    """Add one blocked bidder to the backend's list. Raises on failure."""
+    if not is_online():
+        return None
+    response = requests.post(_registration_url(auction_id, '/blocked'),
+                             json={"bidder_id": bidder_id, "client": client},
+                             timeout=REGISTRATION_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def save_allowed_bidders(auction_id, bidder_ids, client=None):
+    """Replace the backend's allowed list; it drops those ids from the blocked list too."""
+    if not is_online():
+        return None
+    response = requests.put(_registration_url(auction_id, '/allowed'),
+                            json={"bidder_ids": bidder_ids, "client": client},
+                            timeout=REGISTRATION_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
 def upload_log_text(text, filename, timeout=30):
     """Upload text as a .log file to ${LOG_BACK}/s3/upload.
 

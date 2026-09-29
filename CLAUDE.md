@@ -48,7 +48,13 @@ Two passes per round on the auction's `register` page:
 1. Sort by reputation ascending. For bidders with score < 20 and total bid amount > $200, open bid history; if ≥50% of winning items have max bid > $200, decline all their bids and block the profile (decline reason `7`).
 2. If `block_us_switch` on, sort by state and block any United States bidders (auction is non-US shipping).
 
-Loops every 90s. `special_allowed_list` and `already_blocked_list` are persisted per `auction_id`.
+Loops every 90s. Bidders in `special_allowed_list` or `already_blocked_list` are skipped by both passes — so a bidder the operator unblocks by hand on the site stays alone.
+
+The lists are kept per `auction_id` in MongoDB through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), shared by every install, with `bidder_registration_<auction_id>.json` in `%LOCALAPPDATA%/AutoBid` as the local copy:
+- Each block is written the moment it happens (`Automation.record_block`: local file, then `POST .../blocked`), never held until Stop — a closed window or a crash would lose it.
+- Starting the filter loads the lists itself when the boxes don't already hold this auction's (`loaded_auction_id`), so forgetting "Load processed list" can't run on an empty or another auction's list. The backend's allowed list wins; blocks are merged from both sides, and blocks only the local file knows of are sent up.
+- Starting also saves the allowed box (`PUT .../allowed`), which drops those ids from the blocked list.
+- The backend calls are gated on `is_online()` like the logs. When offline or unreachable the local file alone is used, and the next load online pushes the missing blocks up.
 
 ## Logging
 

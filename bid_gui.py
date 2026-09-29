@@ -16,7 +16,7 @@ import random
 import datetime
 import time
 from urllib.parse import urlparse
-from tools import load_bidder_registration, get_auction_id, upload_log_text
+from tools import get_auction_id, upload_log_text
 import config
 
 
@@ -52,6 +52,7 @@ class BidGui:
         self.bot_page = None
         self.mng_page = None
         self.auction_id = None
+        self.loaded_auction_id = None     # Auction whose lists are in the boxes
         self.automation = Automation(self.show_log, self.show_message, self.update_block_list)
         # Add variables for infinite bid
         self.rd = 1
@@ -610,12 +611,17 @@ class BidGui:
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
             self.show_message('开始竞拍者过滤')
-            special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
-            self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
                 mng_acc = self.manager_acc.get()
+                # Forgetting "Load processed list", or switching auctions without
+                # it, would otherwise run on an empty or foreign blocked list.
+                if self.loaded_auction_id != self.auction_id:
+                    await self.load_processed_list_async()
+                # Once loaded, the box is what the operator means, removals included
+                self.automation.special_allowed_list = self.parse_bidder_ids(self.allowed_list.get())
+                await self.automation.save_allowed_list(self.auction_id, mng_acc)
                 # TODO: Add inputs to those fields and pass to filter bidder
                 # reputation = self.reputation.get()
                 # high_value = self.high_value.get()
@@ -629,6 +635,9 @@ class BidGui:
                 self.show_message(result2)
             except Exception as e:
                 self.show_log(f'竞拍者过滤出错：{e}')
+                self.show_log(traceback.format_exc())
+                # Otherwise Start stays disabled until someone clicks Stop
+                self.stop_filter_bidder()
 
 
     def on_stop_filter_click(self):
@@ -659,23 +668,33 @@ class BidGui:
         return "Login filter bidder success"
 
 
+    @staticmethod
+    def parse_bidder_ids(text):
+        return [part.strip() for part in text.replace('，', ',').split(',') if part.strip()]
+
+
     def load_processed_list(self):
+        # Reads the backend, so it runs on the loop rather than freezing the window
+        future = asyncio.run_coroutine_threadsafe(self.load_processed_list_async(), self.loop)
+        def done_callback(f):
+            if f.exception():
+                self.show_log(f'载入名单出错：{f.exception()}')
+        future.add_done_callback(done_callback)
+
+
+    async def load_processed_list_async(self):
         manager_link = self.management_lot_link.get()
         if not manager_link:
             self.show_message('请先填写管理端链接')
             return
         self.auction_id = get_auction_id(manager_link)
-        lists = load_bidder_registration(self.auction_id)
-        print(lists)
-        if lists:
-            self.automation.special_allowed_list = lists.get("special_allowed_list", [])
-            self.automation.already_blocked_list = lists.get("already_blocked_list", [])
-        else:
-            self.automation.special_allowed_list = []
-            self.automation.already_blocked_list = []
-        self.allowed_list.set(','.join([str(bidder) for bidder in self.automation.special_allowed_list]))
-        self.blocked_list.set(','.join([str(bidder) for bidder in self.automation.already_blocked_list]))
-        self.show_message('名单已载入')
+        allowed, blocked = await self.automation.load_bidder_lists(self.auction_id, self.manager_acc.get())
+        self.automation.special_allowed_list = allowed
+        self.automation.already_blocked_list = blocked
+        self.allowed_list.set(','.join(allowed))
+        self.blocked_list.set(','.join(blocked))
+        self.loaded_auction_id = self.auction_id
+        self.show_message(f'名单已载入：允许 {len(allowed)} 个，已封禁 {len(blocked)} 个')
 
 
     def check_form(self):
