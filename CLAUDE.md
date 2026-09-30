@@ -53,9 +53,10 @@ Loops every 90s. Bidders in `special_allowed_list` or `already_blocked_list` are
 The lists live only in MongoDB, through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), one document per auction, shared by every install. Nothing is kept on disk; `already_blocked_list` / `special_allowed_list` in memory are just this run's copy:
 - Each block is written the moment it happens (`Automation.record_block` → `POST .../blocked`, 3 tries), never held until Stop — a closed window or a crash would lose it. A write that still fails is logged; the bidder is skipped for the rest of the run but forgotten after a restart.
 - There is no load button: the lists follow the manager link. The saved link loads at startup, and typing or pasting another reloads (debounced 800 ms, only when the auction id changes — `schedule_list_reload`). So the Allowed box always shows the current auction's list and the operator edits that, never a blank box that a later load would overwrite.
-- Start loads again if the boxes don't hold this auction's (`loaded_auction_id`), and **refuses to start when the lists cannot be read** — running without them would re-block bidders let back in by hand. A failed load clears the boxes rather than leave another auction's lists showing.
-- Starting also saves the allowed box (`PUT .../allowed`), which drops those ids from the blocked list.
-- These calls are **not** gated on `is_online()`: that switch is for logs, and the filter cannot run safely without its lists.
+- Start always reads the lists again (`BidGui.prepare_bidder_lists`) — another machine may have blocked someone since the link loaded them. A failed read never stops the filter: it keeps the blocked list the link loaded if the boxes hold this auction's (`loaded_auction_id`), otherwise runs with an empty blocked list and checks every bidder that fits. A failed link load clears the boxes rather than leave another auction's lists showing.
+- Allowed list at Start: the box as edited when it held this auction's list; otherwise the backend's plus anything typed. After a successful read Start saves it (`PUT .../allowed`, which drops those ids from the blocked list); after a failed read it does not, since the box may never have held the stored list and saving it would wipe it.
+- These calls are **not** gated on `is_online()`: that switch is for logs, not for the filter's own data.
+- A list only applies inside its own auction: each manager link is a fresh set, keyed by the auction id in it, and holds bidder ids.
 
 ## Logging
 
