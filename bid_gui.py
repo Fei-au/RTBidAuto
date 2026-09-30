@@ -134,13 +134,8 @@ class BidGui:
         # Add a divider
         ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
 
-        # Load processed list button
-
         filter_text = "Bidders with over 50% win items which max bid price are over 200, and reputation score lower than 20, will be blocked; and all the bid items will be declined."
         ttk.Label(mainframe, text=filter_text, wraplength=400).grid(column=1, row=105, columnspan=2, sticky=[W])
-
-        ttk.Button(mainframe, text="1. Load processed list", command=self.load_processed_list).grid(ipadx=5, column=1, row=107, sticky=W)
-
 
         # Special allowed list
         ttk.Label(mainframe, text="Allowed list").grid(column=1, row=108, sticky=W)
@@ -160,7 +155,7 @@ class BidGui:
         self.block_us_bidder_switch.set(True)
 
         # Registration filter buttons
-        self.start_filter = ttk.Button(mainframe, text='2. Start Filter Bidder', command=self.start_filter_bidder)
+        self.start_filter = ttk.Button(mainframe, text='Start Filter Bidder', command=self.start_filter_bidder)
         self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
         self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.on_stop_filter_click, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
@@ -235,6 +230,12 @@ class BidGui:
         # never blocks the UI, and a backend we cannot reach leaves the last
         # known answer in force.
         config.start_background_refresh()
+
+        # The bidder lists follow the manager link: the saved one loads now, and
+        # typing or pasting another loads that auction's lists.
+        self._list_reload_job = None
+        self.management_lot_link.trace_add('write', lambda *_: self.schedule_list_reload())
+        self.schedule_list_reload()
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
@@ -615,8 +616,8 @@ class BidGui:
             try:
                 result = await self.login_filter_bidder_async()
                 mng_acc = self.manager_acc.get()
-                # Forgetting "Load processed list", or switching auctions without
-                # it, would otherwise run on an empty or foreign blocked list.
+                # The link normally loaded these already; this covers a Start
+                # clicked before that load came back, or one that failed.
                 if self.loaded_auction_id != self.auction_id:
                     await self.load_processed_list_async()
                 # Once loaded, the box is what the operator means, removals included
@@ -671,6 +672,20 @@ class BidGui:
     @staticmethod
     def parse_bidder_ids(text):
         return [part.strip() for part in text.replace('，', ',').split(',') if part.strip()]
+
+
+    def schedule_list_reload(self):
+        # Debounced, so typing a link doesn't load every half-typed auction id
+        if self._list_reload_job is not None:
+            self.mainframe.after_cancel(self._list_reload_job)
+        self._list_reload_job = self.mainframe.after(800, self.reload_lists_if_auction_changed)
+
+
+    def reload_lists_if_auction_changed(self):
+        self._list_reload_job = None
+        link = self.management_lot_link.get()
+        if link and get_auction_id(link) != self.loaded_auction_id:
+            self.load_processed_list()
 
 
     def load_processed_list(self):

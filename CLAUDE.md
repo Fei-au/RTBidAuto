@@ -52,7 +52,7 @@ Loops every 90s. Bidders in `special_allowed_list` or `already_blocked_list` are
 
 The lists are kept per `auction_id` in MongoDB through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), shared by every install, with `bidder_registration_<auction_id>.json` in `%LOCALAPPDATA%/AutoBid` as the local copy:
 - Each block is written the moment it happens (`Automation.record_block`: local file, then `POST .../blocked`), never held until Stop — a closed window or a crash would lose it.
-- Starting the filter loads the lists itself when the boxes don't already hold this auction's (`loaded_auction_id`), so forgetting "Load processed list" can't run on an empty or another auction's list. The backend's allowed list wins; blocks are merged from both sides, and blocks only the local file knows of are sent up.
+- There is no load button: the lists follow the manager link. The saved link loads at startup, and typing or pasting another reloads (debounced 800 ms, only when the auction id changes — `schedule_list_reload`). So the Allowed box always shows the current auction's list and the operator edits that, never a blank box that a later load would overwrite. Start loads again only if the boxes still don't hold this auction's (`loaded_auction_id`). The backend's allowed list wins; blocks are merged from both sides, and blocks only the local file knows of are sent up.
 - Starting also saves the allowed box (`PUT .../allowed`), which drops those ids from the blocked list.
 - The backend calls are gated on `is_online()` like the logs. When offline or unreachable the local file alone is used, and the next load online pushes the missing blocks up.
 
