@@ -49,7 +49,6 @@ class Automation:
         self.twenty_switch = False
         self.is_running = False
         self.is_filter_running = False
-        self.special_allowed_list = []
         self.already_blocked_list = []
         # The auction and account the running filter records its blocks under
         self.filter_auction_id = None
@@ -706,14 +705,11 @@ class Automation:
             return False
 
     # Check if a bidder can be skipped, if any of followings applied, skip
-    # - bidder in special allowed list
     # - bidder in blocked list
     # - bidder's bidding are appending
     # - bidder's total amount is 0, which means it hasn't bidden
     async def skip_acc(self, bidder_id, total_bid_amount_a):
         # Skip processed ids
-        if bidder_id in self.special_allowed_list:
-            return True
         if bidder_id in self.already_blocked_list:
             return True
         # 1. Check bid history total amount

@@ -30,7 +30,7 @@ import config
 5. goto registration link by replace "lotstats" with "register" in mng link
 6. replace link with query string ?buyer=0&siteId=0&regsortorder=8&All=False
 7. find bidder table tds, then iterate through each td
-8. find if 1. the bid total price is greater than 200, 2. reputation is lower than 20, 3. not in the special_allowed_list, click the td to further inspect
+8. find if 1. the bid total price is greater than 200, 2. reputation is lower than 20, 3. not in the already_blocked_list, click the td to further inspect
 9. in the detailed modal, iterate all items, if in the accepted items, 50% of them are larger than 200, then block the bidder.
     block bidder:
     1. declined all items that the bidder wins
@@ -68,7 +68,6 @@ class BidGui:
 
         self.manager_acc = StringVar()
         self.manager_pwd = StringVar()
-        self.allowed_list = StringVar()
         self.blocked_list = StringVar()
 
         self.bot_acc = StringVar()
@@ -135,11 +134,6 @@ class BidGui:
 
         filter_text = "Bidders with over 50% win items which max bid price are over 200, and reputation score lower than 20, will be blocked; and all the bid items will be declined."
         ttk.Label(mainframe, text=filter_text, wraplength=400).grid(column=1, row=105, columnspan=2, sticky=[W])
-
-        # Special allowed list
-        ttk.Label(mainframe, text="Allowed list").grid(column=1, row=108, sticky=W)
-        allowed_list = ttk.Entry(mainframe, width=30, textvariable=self.allowed_list)
-        allowed_list.grid(column=2, row=108, sticky=(W))
 
         # # Already block list
         ttk.Label(mainframe, text="Blocked List").grid(column=1, row=109, sticky=W)
@@ -605,9 +599,7 @@ class BidGui:
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
             self.show_message('开始竞拍者过滤')
-            special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
-            self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
             try:
                 result = await self.login_filter_bidder_async()
                 mng_acc = self.manager_acc.get()
