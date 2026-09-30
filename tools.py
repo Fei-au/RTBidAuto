@@ -45,6 +45,7 @@ def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd, mng_link, bid_link):
     with open(credentials_file, 'w') as file:
         json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd, "MNG_LINK": mng_link, "BID_LINK": bid_link}, file)
 
+
 def get_auction_id(mng_link):
     link = get_upper_level_url(mng_link)
     parsed = urlparse(link)
@@ -144,40 +145,18 @@ def block_bidder_log(data):
         return f"Warning: {response.status_code} - {response.text}"
 
 
-REGISTRATION_TIMEOUT = 10
-
-
-def _registration_url(auction_id, suffix=''):
-    return f'{os.getenv("LOG_BACK").rstrip("/")}/bidder_registration/{auction_id}{suffix}'
-
-
-# The bidder lists live only on the backend (MongoDB), shared by every install.
-# Not gated on is_online(): that switch is for logs, and the filter cannot run
-# safely without its lists.
-
-def fetch_bidder_registration(auction_id):
-    """The auction's lists from the backend. Raises on failure."""
-    response = requests.get(_registration_url(auction_id), timeout=REGISTRATION_TIMEOUT)
+def fetch_blocked_bidders(auction_id):
+    """Bidder ids already blocked in this auction, from the backend. Raises on failure."""
+    response = requests.get(f'{os.getenv("LOG_BACK")}/bidder_registration/{auction_id}', timeout=10)
     response.raise_for_status()
-    return response.json()
+    return response.json()["already_blocked_list"]
 
 
 def record_blocked_bidder(auction_id, bidder_id, client=None):
-    """Add one blocked bidder to the backend's list. Raises on failure."""
-    response = requests.post(_registration_url(auction_id, '/blocked'),
-                             json={"bidder_id": bidder_id, "client": client},
-                             timeout=REGISTRATION_TIMEOUT)
+    """Add one blocked bidder id to this auction's list on the backend. Raises on failure."""
+    response = requests.post(f'{os.getenv("LOG_BACK")}/bidder_registration/{auction_id}/blocked',
+                             json={"bidder_id": bidder_id, "client": client}, timeout=10)
     response.raise_for_status()
-    return response.json()
-
-
-def save_allowed_bidders(auction_id, bidder_ids, client=None):
-    """Replace the backend's allowed list; it drops those ids from the blocked list too."""
-    response = requests.put(_registration_url(auction_id, '/allowed'),
-                            json={"bidder_ids": bidder_ids, "client": client},
-                            timeout=REGISTRATION_TIMEOUT)
-    response.raise_for_status()
-    return response.json()
 
 
 def upload_log_text(text, filename, timeout=30):

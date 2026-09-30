@@ -2,7 +2,7 @@ import asyncio
 import re
 from urllib.parse import urlparse
 from tools import (get_upper_level_url, add_log, block_bidder_log, filter_bidder_txns,
-                   fetch_bidder_registration, record_blocked_bidder, save_allowed_bidders)
+                   fetch_blocked_bidders, record_blocked_bidder)
 import pandas as pd
 from datetime import datetime, timezone
 import requests
@@ -51,7 +51,7 @@ class Automation:
         self.is_filter_running = False
         self.special_allowed_list = []
         self.already_blocked_list = []
-        # Which auction and account the running filter records its blocks under
+        # The auction and account the running filter records its blocks under
         self.filter_auction_id = None
         self.filter_client = None
         pass
@@ -576,48 +576,15 @@ class Automation:
         profile_saved_modal = page.locator('div[id="bidder-profile-saved-modal"]')
         await profile_saved_modal.get_by_label('Close').click()
         await profile_modal_content.get_by_label('Close').click()
-        await self.record_block(bidder_id)
-        self.show_log(f'[{bidder_id}] 已封禁')
-        return True
-
-    RECORD_BLOCK_ATTEMPTS = 3
-
-    async def record_block(self, bidder_id):
-        """Write one block to the backend right away.
-
-        Never waits for the filter to stop: a closed window or a crash would
-        lose every block of the run. The backend is the only copy, so a failed
-        write is retried; the in-memory list still skips the bidder this run.
-        """
         self.already_blocked_list.append(bidder_id)
         self.update_block_list(self.already_blocked_list)
-        for attempt in range(1, self.RECORD_BLOCK_ATTEMPTS + 1):
-            try:
-                await asyncio.to_thread(record_blocked_bidder, self.filter_auction_id, bidder_id, self.filter_client)
-                return
-            except Exception:
-                if attempt == self.RECORD_BLOCK_ATTEMPTS:
-                    self.show_log(f'[{bidder_id}] 封禁名单写入线上失败 {attempt} 次，本次运行仍会跳过，重启后不会记得')
-                    self.show_log(traceback.format_exc())
-                else:
-                    await asyncio.sleep(2 * attempt)
-
-    async def load_bidder_lists(self, auction_id):
-        """The auction's lists from the backend as (allowed, blocked). Raises on failure."""
-        remote = await asyncio.to_thread(fetch_bidder_registration, auction_id)
-        allowed = list(remote.get("special_allowed_list", []))
-        blocked = [b for b in remote.get("already_blocked_list", []) if b not in allowed]
-        return allowed, blocked
-
-    async def save_allowed_list(self, auction_id, client=None):
-        """Store the allowed list and drop those bidders from the blocked list."""
-        self.already_blocked_list = [b for b in self.already_blocked_list if b not in self.special_allowed_list]
-        self.update_block_list(self.already_blocked_list)
         try:
-            await asyncio.to_thread(save_allowed_bidders, auction_id, self.special_allowed_list, client)
+            await asyncio.to_thread(record_blocked_bidder, self.filter_auction_id, bidder_id, self.filter_client)
         except Exception:
-            self.show_log('允许名单写入线上失败，本次运行仍按框里的名单跳过')
+            self.show_log(f'[{bidder_id}] 封禁记录写入远端失败')
             self.show_log(traceback.format_exc())
+        self.show_log(f'[{bidder_id}] 已封禁')
+        return True
 
     async def wait_for_register_list(self, page, timeout=30000):
         table = page.locator('div.register-list-container table#register-list tbody')
@@ -773,8 +740,18 @@ class Automation:
             domain = page.url.split('?')[0]
             url = domain + query
             url_state_desc = domain + state_query
+        # Bidders already blocked in this auction, from any machine. Every round
+        # skips them from memory; a failed fetch just starts from an empty list.
         self.filter_auction_id = auction_id
         self.filter_client = mng_acc
+        try:
+            self.already_blocked_list = await asyncio.to_thread(fetch_blocked_bidders, auction_id)
+            self.show_log(f'已从远端载入 {len(self.already_blocked_list)} 个封禁过的竞拍者')
+        except Exception:
+            self.already_blocked_list = []
+            self.show_log('远端封禁名单读取失败，按空名单开始')
+            self.show_log(traceback.format_exc())
+        self.update_block_list(self.already_blocked_list)
         filter_round = 0
         transaction_id = str(uuid.uuid4())
         block_count = 0

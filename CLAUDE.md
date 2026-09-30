@@ -25,7 +25,7 @@ To ship Playwright's own browser as a fallback, install it into `playwright-brow
 - [main.py](main.py) — Entry point. Loads `.env`, points Playwright at bundled browsers, instantiates `BidGui`.
 - [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
 - [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `special_allowed_list`, `already_blocked_list`).
-- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), the bidder-list calls to `${LOG_BACK}/bidder_registration`, URL helpers, and remote log POSTs gated on `IS_ONLINE`.
+- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), the blocked-bidder calls to `${LOG_BACK}/bidder_registration`, URL helpers, and remote log POSTs gated on `IS_ONLINE`.
 - [config.py](config.py) — Backend-controlled flags, polled on a daemon thread every 5 minutes.
 - [exceptions.py](exceptions.py) — `NavigationError`.
 
@@ -48,15 +48,9 @@ Two passes per round on the auction's `register` page:
 1. Sort by reputation ascending. For bidders with score < 20 and total bid amount > $200, open bid history; if ≥50% of winning items have max bid > $200, decline all their bids and block the profile (decline reason `7`).
 2. If `block_us_switch` on, sort by state and block any United States bidders (auction is non-US shipping).
 
-Loops every 90s. Bidders in `special_allowed_list` or `already_blocked_list` are skipped by both passes — so a bidder the operator unblocks by hand on the site stays alone.
+Loops every 90s. Bidders in `special_allowed_list` (the Allowed box, typed each run) or `already_blocked_list` are skipped.
 
-The lists live only in MongoDB, through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), one document per auction, shared by every install. Nothing is kept on disk; `already_blocked_list` / `special_allowed_list` in memory are just this run's copy:
-- Each block is written the moment it happens (`Automation.record_block` → `POST .../blocked`, 3 tries), never held until Stop — a closed window or a crash would lose it. A write that still fails is logged; the bidder is skipped for the rest of the run but forgotten after a restart.
-- There is no load button: the lists follow the manager link. The saved link loads at startup, and typing or pasting another reloads (debounced 800 ms, only when the auction id changes — `schedule_list_reload`). So the Allowed box always shows the current auction's list and the operator edits that, never a blank box that a later load would overwrite.
-- Start always reads the lists again (`BidGui.prepare_bidder_lists`) — another machine may have blocked someone since the link loaded them. A failed read never stops the filter: it keeps the blocked list the link loaded if the boxes hold this auction's (`loaded_auction_id`), otherwise runs with an empty blocked list and checks every bidder that fits. A failed link load clears the boxes rather than leave another auction's lists showing.
-- Allowed list at Start: the box as edited when it held this auction's list; otherwise the backend's plus anything typed. After a successful read Start saves it (`PUT .../allowed`, which drops those ids from the blocked list); after a failed read it does not, since the box may never have held the stored list and saving it would wipe it.
-- These calls are **not** gated on `is_online()`: that switch is for logs, not for the filter's own data.
-- A list only applies inside its own auction: each manager link is a fresh set, keyed by the auction id in it, and holds bidder ids.
+Blocked bidders are recorded only on the backend, per auction (the auction id in the manager link), by bidder id — nothing on disk. When the filter starts, `filter_bidder` fetches this auction's blocked ids (`GET ${LOG_BACK}/bidder_registration/<auction_id>`) into `already_blocked_list`; a failed fetch starts from an empty list. Each new block is appended to that list and sent to `POST .../blocked`, so later rounds skip it from memory. Any machine filtering the same auction starts from the same list.
 
 ## Logging
 

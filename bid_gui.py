@@ -52,7 +52,6 @@ class BidGui:
         self.bot_page = None
         self.mng_page = None
         self.auction_id = None
-        self.loaded_auction_id = None     # Auction whose lists are in the boxes
         self.automation = Automation(self.show_log, self.show_message, self.update_block_list)
         # Add variables for infinite bid
         self.rd = 1
@@ -230,12 +229,6 @@ class BidGui:
         # never blocks the UI, and a backend we cannot reach leaves the last
         # known answer in force.
         config.start_background_refresh()
-
-        # The bidder lists follow the manager link: the saved one loads now, and
-        # typing or pasting another loads that auction's lists.
-        self._list_reload_job = None
-        self.management_lot_link.trace_add('write', lambda *_: self.schedule_list_reload())
-        self.schedule_list_reload()
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
@@ -612,15 +605,12 @@ class BidGui:
             self.start_filter.config(state='disabled')
             self.stop_filter.config(state='normal')
             self.show_message('开始竞拍者过滤')
+            special_allowed_list = self.allowed_list.get()
             block_us_switch = self.block_us_bidder_switch.get()
+            self.automation.special_allowed_list = special_allowed_list.replace('， ', ',').replace('，', ',').split(',')
             try:
-                mng_acc = self.manager_acc.get()
-                # Saved before login, so a failed login doesn't lose the edits.
-                # Only after a successful read: saving a box that never held the
-                # backend's list would wipe the allowed list stored there.
-                if await self.prepare_bidder_lists():
-                    await self.automation.save_allowed_list(self.auction_id, mng_acc)
                 result = await self.login_filter_bidder_async()
+                mng_acc = self.manager_acc.get()
                 # TODO: Add inputs to those fields and pass to filter bidder
                 # reputation = self.reputation.get()
                 # high_value = self.high_value.get()
@@ -634,50 +624,6 @@ class BidGui:
                 self.show_message(result2)
             except Exception as e:
                 self.show_log(f'竞拍者过滤出错：{e}')
-                self.show_log(traceback.format_exc())
-                # Otherwise Start stays disabled until someone clicks Stop
-                self.stop_filter_bidder()
-
-
-    async def prepare_bidder_lists(self):
-        """Read the lists fresh from the backend as the filter starts.
-
-        Fresh, not the copy loaded with the link: another machine may have
-        blocked someone since. A failed read is not fatal — the filter runs
-        with an empty blocked list and simply checks every bidder that fits.
-        Returns whether the read worked.
-        """
-        auction_id = get_auction_id(self.management_lot_link.get())
-        self.auction_id = auction_id
-        typed_allowed = self.parse_bidder_ids(self.allowed_list.get())
-        try:
-            remote_allowed, remote_blocked = await self.automation.load_bidder_lists(auction_id)
-        except Exception:
-            self.show_log(traceback.format_exc())
-            if self.loaded_auction_id == auction_id:
-                # Still have what the link loaded a moment ago; better than nothing
-                self.show_log('读不到线上名单，沿用刚才载入的封禁名单')
-                blocked = list(self.automation.already_blocked_list)
-            else:
-                self.show_log('读不到线上名单，按空的封禁名单过滤：符合条件的人都会检查')
-                blocked = []
-            allowed, loaded = typed_allowed, False
-        else:
-            if self.loaded_auction_id == auction_id:
-                # The box held this auction's list; it is what the operator means, removals included
-                allowed = typed_allowed
-            else:
-                # The box never held it (its load failed): keep what was typed on top
-                allowed = remote_allowed + [b for b in typed_allowed if b not in remote_allowed]
-            blocked, loaded = remote_blocked, True
-            self.loaded_auction_id = auction_id
-        blocked = [b for b in blocked if b not in allowed]
-        self.automation.special_allowed_list = allowed
-        self.automation.already_blocked_list = blocked
-        self.allowed_list.set(','.join(allowed))
-        self.blocked_list.set(','.join(blocked))
-        self.show_message(f'过滤名单：允许 {len(allowed)} 个，已封禁 {len(blocked)} 个')
-        return loaded
 
 
     def on_stop_filter_click(self):
@@ -706,62 +652,6 @@ class BidGui:
         # Load bidder registration information
         self.auction_id = get_auction_id(manager_link)
         return "Login filter bidder success"
-
-
-    @staticmethod
-    def parse_bidder_ids(text):
-        return [part.strip() for part in text.replace('，', ',').split(',') if part.strip()]
-
-
-    def schedule_list_reload(self):
-        # Debounced, so typing a link doesn't load every half-typed auction id
-        if self._list_reload_job is not None:
-            self.mainframe.after_cancel(self._list_reload_job)
-        self._list_reload_job = self.mainframe.after(800, self.reload_lists_if_auction_changed)
-
-
-    def reload_lists_if_auction_changed(self):
-        self._list_reload_job = None
-        link = self.management_lot_link.get()
-        if link and get_auction_id(link) != self.loaded_auction_id:
-            self.load_processed_list()
-
-
-    def load_processed_list(self):
-        # Reads the backend, so it runs on the loop rather than freezing the window
-        future = asyncio.run_coroutine_threadsafe(self.load_processed_list_async(), self.loop)
-        def done_callback(f):
-            if f.exception():
-                self.show_log(f'载入名单出错：{f.exception()}')
-        future.add_done_callback(done_callback)
-
-
-    async def load_processed_list_async(self):
-        """Load the link's auction lists from the backend. False when it could not."""
-        manager_link = self.management_lot_link.get()
-        if not manager_link:
-            self.show_message('请先填写管理端链接')
-            return False
-        self.auction_id = get_auction_id(manager_link)
-        try:
-            allowed, blocked = await self.automation.load_bidder_lists(self.auction_id)
-        except Exception:
-            # Clear the boxes rather than leave another auction's lists showing
-            self.automation.special_allowed_list = []
-            self.automation.already_blocked_list = []
-            self.allowed_list.set('')
-            self.blocked_list.set('')
-            self.loaded_auction_id = None
-            self.show_message(f'读取线上名单失败（拍卖 {self.auction_id}），开始过滤时会再读一次')
-            self.show_log(traceback.format_exc())
-            return False
-        self.automation.special_allowed_list = allowed
-        self.automation.already_blocked_list = blocked
-        self.allowed_list.set(','.join(allowed))
-        self.blocked_list.set(','.join(blocked))
-        self.loaded_auction_id = self.auction_id
-        self.show_message(f'名单已载入：允许 {len(allowed)} 个，已封禁 {len(blocked)} 个')
-        return True
 
 
     def check_form(self):
