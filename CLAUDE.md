@@ -25,7 +25,7 @@ To ship Playwright's own browser as a fallback, install it into `playwright-brow
 - [main.py](main.py) — Entry point. Loads `.env`, points Playwright at bundled browsers, instantiates `BidGui`.
 - [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
 - [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `special_allowed_list`, `already_blocked_list`).
-- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), per-auction bidder lists (`bidder_registration_<auction_id>.json`), URL helpers, and remote log POSTs gated on `IS_ONLINE`.
+- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), the bidder-list calls to `${LOG_BACK}/bidder_registration`, URL helpers, and remote log POSTs gated on `IS_ONLINE`.
 - [config.py](config.py) — Backend-controlled flags, polled on a daemon thread every 5 minutes.
 - [exceptions.py](exceptions.py) — `NavigationError`.
 
@@ -50,11 +50,12 @@ Two passes per round on the auction's `register` page:
 
 Loops every 90s. Bidders in `special_allowed_list` or `already_blocked_list` are skipped by both passes — so a bidder the operator unblocks by hand on the site stays alone.
 
-The lists are kept per `auction_id` in MongoDB through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), shared by every install, with `bidder_registration_<auction_id>.json` in `%LOCALAPPDATA%/AutoBid` as the local copy:
-- Each block is written the moment it happens (`Automation.record_block`: local file, then `POST .../blocked`), never held until Stop — a closed window or a crash would lose it.
-- There is no load button: the lists follow the manager link. The saved link loads at startup, and typing or pasting another reloads (debounced 800 ms, only when the auction id changes — `schedule_list_reload`). So the Allowed box always shows the current auction's list and the operator edits that, never a blank box that a later load would overwrite. Start loads again only if the boxes still don't hold this auction's (`loaded_auction_id`). The backend's allowed list wins; blocks are merged from both sides, and blocks only the local file knows of are sent up.
+The lists live only in MongoDB, through log_back (`${LOG_BACK}/bidder_registration/<auction_id>`, collection `bidLog.bidder_registration`), one document per auction, shared by every install. Nothing is kept on disk; `already_blocked_list` / `special_allowed_list` in memory are just this run's copy:
+- Each block is written the moment it happens (`Automation.record_block` → `POST .../blocked`, 3 tries), never held until Stop — a closed window or a crash would lose it. A write that still fails is logged; the bidder is skipped for the rest of the run but forgotten after a restart.
+- There is no load button: the lists follow the manager link. The saved link loads at startup, and typing or pasting another reloads (debounced 800 ms, only when the auction id changes — `schedule_list_reload`). So the Allowed box always shows the current auction's list and the operator edits that, never a blank box that a later load would overwrite.
+- Start loads again if the boxes don't hold this auction's (`loaded_auction_id`), and **refuses to start when the lists cannot be read** — running without them would re-block bidders let back in by hand. A failed load clears the boxes rather than leave another auction's lists showing.
 - Starting also saves the allowed box (`PUT .../allowed`), which drops those ids from the blocked list.
-- The backend calls are gated on `is_online()` like the logs. When offline or unreachable the local file alone is used, and the next load online pushes the missing blocks up.
+- These calls are **not** gated on `is_online()`: that switch is for logs, and the filter cannot run safely without its lists.
 
 ## Logging
 

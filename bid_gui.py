@@ -614,12 +614,18 @@ class BidGui:
             self.show_message('开始竞拍者过滤')
             block_us_switch = self.block_us_bidder_switch.get()
             try:
-                result = await self.login_filter_bidder_async()
-                mng_acc = self.manager_acc.get()
                 # The link normally loaded these already; this covers a Start
                 # clicked before that load came back, or one that failed.
-                if self.loaded_auction_id != self.auction_id:
-                    await self.load_processed_list_async()
+                # Without the lists, bidders let back in by hand would be
+                # blocked again, so no lists means no filter.
+                link_auction_id = get_auction_id(self.management_lot_link.get())
+                if self.loaded_auction_id != link_auction_id or not link_auction_id:
+                    if not await self.load_processed_list_async():
+                        self.show_message('读不到线上名单，过滤没有开始')
+                        self.stop_filter_bidder()
+                        return
+                result = await self.login_filter_bidder_async()
+                mng_acc = self.manager_acc.get()
                 # Once loaded, the box is what the operator means, removals included
                 self.automation.special_allowed_list = self.parse_bidder_ids(self.allowed_list.get())
                 await self.automation.save_allowed_list(self.auction_id, mng_acc)
@@ -698,18 +704,31 @@ class BidGui:
 
 
     async def load_processed_list_async(self):
+        """Load the link's auction lists from the backend. False when it could not."""
         manager_link = self.management_lot_link.get()
         if not manager_link:
             self.show_message('请先填写管理端链接')
-            return
+            return False
         self.auction_id = get_auction_id(manager_link)
-        allowed, blocked = await self.automation.load_bidder_lists(self.auction_id, self.manager_acc.get())
+        try:
+            allowed, blocked = await self.automation.load_bidder_lists(self.auction_id)
+        except Exception:
+            # Clear the boxes rather than leave another auction's lists showing
+            self.automation.special_allowed_list = []
+            self.automation.already_blocked_list = []
+            self.allowed_list.set('')
+            self.blocked_list.set('')
+            self.loaded_auction_id = None
+            self.show_message(f'读取线上名单失败（拍卖 {self.auction_id}），请检查网络')
+            self.show_log(traceback.format_exc())
+            return False
         self.automation.special_allowed_list = allowed
         self.automation.already_blocked_list = blocked
         self.allowed_list.set(','.join(allowed))
         self.blocked_list.set(','.join(blocked))
         self.loaded_auction_id = self.auction_id
         self.show_message(f'名单已载入：允许 {len(allowed)} 个，已封禁 {len(blocked)} 个')
+        return True
 
 
     def check_form(self):
