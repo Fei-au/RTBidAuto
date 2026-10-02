@@ -629,7 +629,10 @@ class Automation:
                 continue
             winning_bid_count += 1
             bid_history_max_bid = await bid_tr.locator('td[class="bid-history-max-bid"]').inner_text()
-            bid_max = float(bid_history_max_bid)
+            # Amounts from $1,000 up carry a thousands comma ("1,050.00")
+            bid_max = self.parse_amount(bid_history_max_bid)
+            if bid_max is None:
+                raise ValueError(f'读不出最高出价：{bid_history_max_bid!r}')
             if bid_max > high_value:
                 high_value_bid_count += 1
             else:
