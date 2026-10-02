@@ -57,8 +57,12 @@ class BidGui:
         self.rd = 1
         self.start = None
         self.end = None
+        self.root = root
+        self.closing = False
 
         root.title("Hibid Automation")
+        # The title-bar X goes through the same close as the Quit button
+        root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         mainframe = ttk.Frame(root, padding=5)
         mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
@@ -127,7 +131,7 @@ class BidGui:
         self.infinate_button = ttk.Button(mainframe, text='Infinate Bid', command=self.infinite_bid)
         self.infinate_button.grid(ipadx=5, column=3, row=103, sticky=(W))
 
-        ttk.Button(mainframe, text="Quit", command=root.destroy).grid(ipadx=5, column=7, row=201, sticky=W)
+        ttk.Button(mainframe, text="Quit", command=self.on_close).grid(ipadx=5, column=7, row=201, sticky=W)
 
         # Add a divider
         ttk.Separator(mainframe, orient='horizontal').grid(column=1, row=104, columnspan=3, sticky=(W,E))
@@ -150,7 +154,7 @@ class BidGui:
         # Registration filter buttons
         self.start_filter = ttk.Button(mainframe, text='Start Filter Bidder', command=self.start_filter_bidder)
         self.start_filter.grid(ipadx=5, column=2, row=112, sticky=W)
-        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.on_stop_filter_click, state='disabled')
+        self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
 
         # Msg area setup
@@ -410,33 +414,45 @@ class BidGui:
     def stop_automation(self):
         self.show_log('正在停止，等当前这步做完')
         self.stop_automation_cleanup()
-        self.upload_log('bid')
 
-    def upload_log(self, kind):
-        """Upload what the log box holds right now, on its own thread.
+    CLOSE_UPLOAD_TIMEOUT = 15   # seconds the window waits for the upload
 
+    def on_close(self):
+        """Quit button and title-bar X: upload the log box once, then close.
+
+        The upload runs on a daemon thread, which dies with the process, so the
+        window stays up until it finishes or CLOSE_UPLOAD_TIMEOUT runs out.
         Only the log box, not the message box. Gated on the same backend switch
         as the other remote logs.
         """
-        if not config.is_online():
+        if self.closing:
             return
+        self.closing = True
         text = self.log_text.get('1.0', 'end').rstrip()
-        if not text:
+        if not text or not config.is_online():
+            self.root.destroy()
             return
         auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'autobid_{kind}_{auction_id}_{timestamp}.log'
+        filename = f'autobid_{auction_id}_{timestamp}.log'
+        self.show_message('正在上传日志，传完自动关闭…')
 
         def worker():
             try:
-                upload_log_text(text, filename)
-                msg = f'日志已上传：{filename}'
-            except Exception as e:
-                msg = f'日志上传失败：{e}'
-            # Back onto the Tk thread before touching the widget.
-            self.log_text.after(0, self.show_log, msg)
+                upload_log_text(text, filename, timeout=self.CLOSE_UPLOAD_TIMEOUT)
+            except Exception:
+                pass    # Closing anyway; nowhere left to report it
 
-        threading.Thread(target=worker, daemon=True).start()
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        deadline = time.time() + self.CLOSE_UPLOAD_TIMEOUT
+
+        def close_when_done():
+            if thread.is_alive() and time.time() < deadline:
+                self.root.after(200, close_when_done)
+            else:
+                self.root.destroy()
+        close_when_done()
 
     def show_message(self, msg):
         # Enable text widget to insert new msg
@@ -617,10 +633,6 @@ class BidGui:
             except Exception as e:
                 self.show_log(f'竞拍者过滤出错：{e}')
 
-
-    def on_stop_filter_click(self):
-        self.stop_filter_bidder()
-        self.upload_log('filter')
 
     def stop_filter_bidder(self):
         if self.automation.is_filter_running:
