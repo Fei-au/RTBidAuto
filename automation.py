@@ -459,22 +459,47 @@ class Automation:
 
             # Start bid
             lot_title = page.locator(f'app-lot-tile:has-text("Lot {lot} | ")').first
-            if await lot_title.count() == 0:
-                self.show_log(f'lot {lot}：搜索页找不到，跳过')
-                return 0, 'skip'
-            # HiBid's PWA moved the tile bid button into an <app-button> wrapper
-            # with no aria-label, so match the visible text and keep the old
-            # aria-label as a fallback.
-            bid_button = lot_title.locator(
-                '[aria-label="Bid"], '
-                'app-lot-buttons .lot-bid-container button:has(span.lot-bid-text)'
-            ).first
+            if await lot_title.count() > 0:
+                # HiBid's PWA moved the tile bid button into an <app-button>
+                # wrapper with no aria-label, so match the visible text and keep
+                # the old aria-label as a fallback.
+                bid_button = lot_title.locator(
+                    '[aria-label="Bid"], '
+                    'app-lot-buttons .lot-bid-container button:has(span.lot-bid-text)'
+                ).first
+            else:
+                # The catalog's lot tiles became cards. The search also matches
+                # titles, so take the card whose lot number is exactly this one.
+                lot_number = page.locator(
+                    'a.app-auction-lot-card__lot-number',
+                    has_text=re.compile(rf'^\s*Lot {re.escape(lot)}\s*$'),
+                )
+                lot_title = page.locator('app-auction-lot-card').filter(has=lot_number).first
+                if await lot_title.count() == 0:
+                    self.show_log(f'lot {lot}：搜索页找不到，跳过')
+                    return 0, 'skip'
+                # The card's call to action reads "Bid 1.00 CAD" while the lot
+                # is open and "View Lot" once it has closed.
+                bid_button = lot_title.locator('.app-auction-lot-card__cta a, .app-auction-lot-card__cta button').filter(
+                    has_text=re.compile(r'^\s*Bid\b')
+                ).first
             if await bid_button.count() == 0:
                 self.show_log(f'lot {lot}：没有出价按钮（可能已结束），跳过')
                 return 0, 'skip'
             await bid_button.click()
 
             bid_modal = page.locator("app-login-container")
+            await bid_modal.get_by_label("Bid amount", exact=True).nth(0).wait_for(state='visible', timeout=5000)
+            # Never bid through a modal opened for some other lot.
+            modal_lot = page.locator('#bid-confirm-lot-number')
+            if await modal_lot.count() > 0:
+                shown = (await modal_lot.first.inner_text()).strip()
+                if shown != lot:
+                    self.show_log(f'lot {lot}：出价框显示的是 lot {shown}，不出价')
+                    await self.click_if_possible(
+                        bid_modal.get_by_label("Close", exact=True).first, '关闭按钮', lot
+                    )
+                    return 0, 'skip'
 
             # Initial bid price
             bid_amount_text = await bid_modal.get_by_label("Bid amount", exact=True).nth(0).input_value()
