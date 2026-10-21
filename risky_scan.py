@@ -92,8 +92,17 @@ class RiskyScanner:
         target_set = set(targets.keys())
         url = (f"https://my.hibid.com/auctioneer/register/index/{auction_id}/"
                f"?buyer=0&siteId=0&regsortorder=1&All=True")
+        await page.bring_to_front()
         await page.goto(url)
-        await page.wait_for_load_state('networkidle')
+        # The register page can keep a request open and never reach networkidle
+        # (it timed out after 30s on auction 786324). The rows are server-rendered,
+        # so wait for the table itself and give networkidle only a short grace.
+        await page.locator('div.register-list-container table#register-list tbody').wait_for(
+            state='attached', timeout=60000)
+        try:
+            await page.wait_for_load_state('networkidle', timeout=5000)
+        except Exception:
+            pass
 
         risky = []
         processed = set()
