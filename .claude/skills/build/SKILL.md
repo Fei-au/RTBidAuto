@@ -96,8 +96,9 @@ likely to be broken by a bad build:
 1. Press **2. Login Accounts**. A Chrome window should open by itself on the bid link.
    That proves the Chrome discovery and the debugging-port wait survive freezing. If the
    bot account is not signed in there, the log prints a banner asking for a sign-in —
-   expected on a fresh machine, and signing in once is enough because the profile under
-   `%LOCALAPPDATA%\AutoBid\chrome-bot-profile` keeps the session.
+   expected on a fresh machine, and signing in once is enough because the profile
+   (`C:\chrome-dev-profile`, or `%LOCALAPPDATA%\AutoBid\chrome-bot-profile` where that
+   folder does not exist) keeps the session.
 2. Watch for a second Chrome window for the manager account. That one is Playwright
    driving the installed Chrome through `channel="chrome"`.
 

@@ -96,7 +96,15 @@ def find_chrome_path():
     return None
 
 
+# The profile operators have always started the bot Chrome on by hand (see the
+# README), so the bot account is already signed in there. Only a machine that
+# never had it falls back to a profile of the app's own.
+README_CHROME_PROFILE = Path(r'C:\chrome-dev-profile')
+
+
 def bot_chrome_profile_dir():
+    if README_CHROME_PROFILE.is_dir():
+        return README_CHROME_PROFILE
     profile = app_data_path / 'chrome-bot-profile'
     profile.mkdir(exist_ok=True)
     return profile
