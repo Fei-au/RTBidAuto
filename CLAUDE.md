@@ -12,25 +12,27 @@ Env vars are loaded from `.env` via `python-dotenv`. Relevant keys: `LOG_BACK` (
 
 ## Build
 
-PyInstaller one-file with bundled Playwright browsers:
+PyInstaller one-file. Browsers are not bundled: both browsers come from the machine's own Google Chrome, so the exe stays small and the user installs nothing.
 
 ```powershell
-pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." --add-data "playwright-browsers;playwright-browsers" main.py
+pyinstaller --onefile --noconsole --name="Auto Bid<version>" --add-data=".env;." main.py
 ```
 
-`main.py` rewires `PLAYWRIGHT_BROWSERS_PATH` to the bundled folder when frozen (`sys._MEIPASS`).
+To ship Playwright's own browser as a fallback, install it into `playwright-browsers/` first (`PLAYWRIGHT_BROWSERS_PATH=<repo>/playwright-browsers python -m playwright install chromium`) and add `--add-data "playwright-browsers;playwright-browsers"`. `main.py` points `PLAYWRIGHT_BROWSERS_PATH` at that folder when frozen and the folder is actually there; that payload is ~326 MB, so prefer `--onedir` when including it.
 
 ## Architecture
 
 - [main.py](main.py) — Entry point. Loads `.env`, points Playwright at bundled browsers, instantiates `BidGui`.
 - [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
-- [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `special_allowed_list`, `already_blocked_list`).
-- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), per-auction bidder lists (`bidder_registration_<auction_id>.json`), URL helpers, and remote log POSTs gated on `IS_ONLINE`.
+- [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `already_blocked_list`).
+- [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), the blocked-bidder calls to `${LOG_BACK}/bidder_registration`, URL helpers, and remote log POSTs gated on `IS_ONLINE`.
+- [config.py](config.py) — Backend-controlled flags, polled on a daemon thread every 5 minutes.
 - [exceptions.py](exceptions.py) — `NavigationError`.
+- [risky_scan.py](risky_scan.py) — `RiskyScanner`, behind the **Scan Risky Bidders** button. Read-only: collects bidders with a high bid ≥ threshold from lotstats, then opens each one's profile on the register page (`All=True`) and lists those with score < threshold or a bad keyword in the public notes; **Export CSV** saves the list. It waits for the register table rather than `networkidle`, which that page can fail to reach. This feature lives only on the `risky-bidder-scan` branch, which takes main by merging it in.
 
 ## Browser connection
 
-The bot account uses an existing Chrome instance over CDP (`http://localhost:9222`). The user must launch Chrome with `--remote-debugging-port=9222 --user-data-dir=...` and log in to the auction site manually first (use the auctioneer subdomain, e.g. `company.bid.com`, not `www.bid.com`). The manager account uses Playwright's own persistent context at `%LOCALAPPDATA%/AutoBid/playwright-mng-data`.
+The bot account drives the machine's own Chrome over CDP (`http://localhost:9222`). `BidGui.ensure_bot_chrome` reuses a Chrome already listening on that port; otherwise it locates `chrome.exe` (registry App Paths first, then the usual install folders) and starts it with the bid link open on `C:\chrome-dev-profile` — the profile the README has operators sign in on — or, on a machine without that folder, on `%LOCALAPPDATA%/AutoBid/chrome-bot-profile`. Either way it is the same plain `chrome.exe --remote-debugging-port` launch as the README's command, not a Playwright-launched browser, so it carries no automation flags. The bot account has to be signed in there once — the profile keeps the session — and `login_bot` checks for the `.welcome-label` header, printing a banner that asks for a sign-in when it is missing. Use the auctioneer subdomain (e.g. `company.bid.com`, not `www.bid.com`). The manager account uses a persistent context at `%LOCALAPPDATA%/AutoBid/playwright-mng-data`, driving the installed Chrome via `channel="chrome"` and falling back to Playwright's own browser if that fails.
 
 ## Bidding logic ([automation.py:253](automation.py:253))
 
@@ -47,11 +49,19 @@ Two passes per round on the auction's `register` page:
 1. Sort by reputation ascending. For bidders with score < 20 and total bid amount > $200, open bid history; if ≥50% of winning items have max bid > $200, decline all their bids and block the profile (decline reason `7`).
 2. If `block_us_switch` on, sort by state and block any United States bidders (auction is non-US shipping).
 
-Loops every 90s. `special_allowed_list` and `already_blocked_list` are persisted per `auction_id`.
+Loops every 90s. Bidders in `already_blocked_list` are skipped.
+
+Blocked bidders are recorded only on the backend, per auction (the auction id in the manager link), by bidder id — nothing on disk. When the filter starts, `filter_bidder` fetches this auction's blocked ids (`GET ${LOG_BACK}/bidder_registration/<auction_id>`) into `already_blocked_list`; a failed fetch starts from an empty list. Each new block is appended to that list and sent to `POST .../blocked`, so later rounds skip it from memory. Any machine filtering the same auction starts from the same list.
 
 ## Logging
 
-`tools.add_log` / `block_bidder_log` / `filter_bidder_txns` POST to `${LOG_BACK}/logs/...`. All become no-ops when `IS_ONLINE != "TRUE"`.
+`tools.add_log` / `block_bidder_log` / `filter_bidder_txns` POST to `${LOG_BACK}/logs/...`, and become no-ops when `config.is_online()` is false.
+
+That switch is answered by the backend, not by the build: `GET ${LOG_BACK}/config/client?client=<MNG_ACC>` returns `{"is_online": ...}`, so an install can be turned off without shipping a new exe. `IS_ONLINE` in `.env` is only the fallback until the backend has answered. A backend that cannot be reached leaves the last answer standing — and cannot receive logs either way, since it is the same host — and the fetch never blocks bidding (5s timeout, daemon thread).
+
+`LOG_BACK` itself stays in `.env` — it is what tells the client where to ask.
+
+Closing the app — the **Quit** button or the title-bar X (`WM_DELETE_WINDOW`), both routed to `BidGui.on_close` — uploads the log box once (right-hand pane only, not the message box) as `autobid_<auction_id>_<timestamp>.log` to `${LOG_BACK}/s3/upload`, the same endpoint rt-af-controller uses. The stop buttons do not upload. It is sent from memory on a daemon thread, gated on the same `is_online()` switch; since a daemon thread dies with the process, the window stays open (showing "正在上传日志") until the upload finishes or 15 s pass, then closes. A killed process, a crash or a power loss uploads nothing.
 
 ## Conventions
 

@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 import requests
 import httpx
+# The switch lives on the backend so it can be flipped without a new build;
+# .env is only the fallback. Read at call time, never frozen at import.
+from config import is_online
 
 
 def get_upper_level_url(url):
@@ -42,17 +45,6 @@ def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd, mng_link, bid_link):
     with open(credentials_file, 'w') as file:
         json.dump({"BOT_ACC": bot_acc, "BOT_PWD": bot_pwd, "MNG_ACC": mng_acc, "MNG_PWD": mng_pwd, "MNG_LINK": mng_link, "BID_LINK": bid_link}, file)
 
-def save_bidder_registration(auction_id: int, special_allowed_list: list, already_blocked_list: list):
-    with open(app_data_path / f'bidder_registration_{auction_id}.json', 'w') as file:
-        json.dump({"special_allowed_list": special_allowed_list, "already_blocked_list": already_blocked_list}, file)
-        
-def load_bidder_registration(auction_id: int):
-    file_path = app_data_path / f'bidder_registration_{str(auction_id)}.json'
-    if file_path.exists():
-        with open(file_path, 'r') as file:
-            return json.load(file)
-    return None
-
 
 def get_auction_id(mng_link):
     link = get_upper_level_url(mng_link)
@@ -65,11 +57,75 @@ def get_auction_id(mng_link):
 def get_local_dir():
     return app_data_path
 
+
+CHROME_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+
+
+def find_chrome_path():
+    """Locate the installed Google Chrome, or None.
+
+    Chrome registers its own location under App Paths, which holds wherever the
+    user installed it, so try the registry before guessing directories.
+    """
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+    if winreg is not None:
+        views = [
+            (winreg.HKEY_CURRENT_USER, 0),
+            (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+            (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY),
+        ]
+        for hive, view in views:
+            try:
+                with winreg.OpenKey(hive, CHROME_APP_PATHS_KEY, 0, winreg.KEY_READ | view) as key:
+                    path = winreg.QueryValue(key, '')
+            except OSError:
+                continue
+            if path and os.path.isfile(path):
+                return path
+    for base in (os.environ.get('PROGRAMFILES'),
+                 os.environ.get('PROGRAMFILES(X86)'),
+                 os.environ.get('LOCALAPPDATA')):
+        if not base:
+            continue
+        candidate = os.path.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe')
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+# The profile operators have always started the bot Chrome on by hand (see the
+# README), so the bot account is already signed in there. Only a machine that
+# never had it falls back to a profile of the app's own.
+README_CHROME_PROFILE = Path(r'C:\chrome-dev-profile')
+
+
+def bot_chrome_profile_dir():
+    if README_CHROME_PROFILE.is_dir():
+        return README_CHROME_PROFILE
+    profile = app_data_path / 'chrome-bot-profile'
+    profile.mkdir(exist_ok=True)
+    return profile
+
+
+def chrome_launch_command(chrome_path, port, url=None):
+    """The command line that opens Chrome with the debugging port on its own profile."""
+    command = [
+        chrome_path,
+        f'--remote-debugging-port={port}',
+        f'--user-data-dir={bot_chrome_profile_dir()}',
+        '--no-first-run',
+        '--no-default-browser-check',
+    ]
+    if url:
+        command.append(url)
+    return command
+
         
-LOG_BACK = f'{os.getenv("LOG_BACK")}/logs'
-IS_ONLINE = os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"
 def add_log(path, data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs{path}', 
         json=data)
@@ -79,7 +135,7 @@ def add_log(path, data):
         return f"Warning: {response.status_code} - {response.text}"
     
 def filter_bidder_txns(data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/filter_bidder_txns', json=data)
     if response.status_code == 200:
@@ -88,12 +144,42 @@ def filter_bidder_txns(data):
         return f"Warning: {response.status_code} - {response.text}"
     
 def block_bidder_log(data):
-    if not IS_ONLINE:
+    if not is_online():
         return "Offline mode - log not sent"
     response = requests.post(f'{os.getenv("LOG_BACK")}/logs/block_bidder_log', json=data)
     if response.status_code == 200:
         return response.text
     else:
         return f"Warning: {response.status_code} - {response.text}"
+
+
+def fetch_blocked_bidders(auction_id):
+    """Bidder ids already blocked in this auction, from the backend. Raises on failure."""
+    response = requests.get(f'{os.getenv("LOG_BACK")}/bidder_registration/{auction_id}', timeout=10)
+    response.raise_for_status()
+    return response.json()["already_blocked_list"]
+
+
+def record_blocked_bidder(auction_id, bidder_id, client=None):
+    """Add one blocked bidder id to this auction's list on the backend. Raises on failure."""
+    response = requests.post(f'{os.getenv("LOG_BACK")}/bidder_registration/{auction_id}/blocked',
+                             json={"bidder_id": bidder_id, "client": client}, timeout=10)
+    response.raise_for_status()
+
+
+def upload_log_text(text, filename, timeout=30):
+    """Upload text as a .log file to ${LOG_BACK}/s3/upload.
+
+    Same endpoint rt-af-controller uses. The text is sent straight from memory,
+    nothing is written to disk. Raises on failure so the caller can report it.
+    """
+    response = requests.post(
+        f'{os.getenv("LOG_BACK").rstrip("/")}/s3/upload',
+        files={"file": (filename, text.encode("utf-8"), "text/plain")},
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"{response.status_code} - {response.text}")
+    return response.text
     
     
