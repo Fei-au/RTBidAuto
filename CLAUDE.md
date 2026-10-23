@@ -23,7 +23,7 @@ To ship Playwright's own browser as a fallback, install it into `playwright-brow
 ## Architecture
 
 - [main.py](main.py) — Entry point. Loads `.env`, points Playwright at bundled browsers, instantiates `BidGui`.
-- [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
+- [bid_gui.py](bid_gui.py) — Tkinter UI (`BidGui`). With `SHOW_BID_AND_FILTER` off (as on this branch) only the manager account/password and the risky bidder scan are on screen: the auto bid and block bidder widgets (left area, rows 3-112) are built as usual and then `grid_remove`d, so their code is unchanged and turning the flag on brings them back. Owns Playwright lifecycle, three pages (`bot_page`, `mng_page`, `mng_bidder_page`), and an asyncio loop running on a daemon thread. UI callbacks dispatch coroutines via `asyncio.run_coroutine_threadsafe`.
 - [automation.py](automation.py) — `Automation` class. All Playwright interactions: login, lot info collection, bidding logic, bidder filtering/blocking. Holds in-memory state (`lot_dict`, `is_running`, `is_filter_running`, `already_blocked_list`).
 - [tools.py](tools.py) — Credential persistence (`%LOCALAPPDATA%/AutoBid/credentials.json`), the blocked-bidder calls to `${LOG_BACK}/bidder_registration`, URL helpers, and remote log POSTs gated on `IS_ONLINE`.
 - [config.py](config.py) — Backend-controlled flags, polled on a daemon thread every 5 minutes.

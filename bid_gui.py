@@ -22,6 +22,9 @@ from risky_scan import RiskyScanner
 import csv
 
 
+# Off: only the manager login and the risky bidder scan are on screen. The auto bid
+# and block bidder sections are still built, just taken off the grid.
+SHOW_BID_AND_FILTER = False
 
 
 '''
@@ -211,6 +214,14 @@ class BidGui:
         # Add padding to each widget
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
+        # Auto bid and block bidder are rows 3-112 of the left area (the manager link
+        # included, which only they use). grid_remove keeps each widget's grid
+        # options, so turning the flag on brings them back unchanged.
+        if not SHOW_BID_AND_FILTER:
+            for widget in mainframe.grid_slaves():
+                info = widget.grid_info()
+                if 3 <= int(info['row']) <= 112 and int(info['column']) <= 3:
+                    widget.grid_remove()
         # Focus on root window
         self.mainframe = mainframe
         root.focus()
