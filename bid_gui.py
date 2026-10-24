@@ -16,7 +16,8 @@ import random
 import datetime
 import time
 from urllib.parse import urlparse
-from tools import get_auction_id, upload_log_text
+from tools import (get_auction_id, upload_log_text, parse_auction_link,
+                   manager_link_for, bid_link_for)
 import config
 
 
@@ -60,6 +61,7 @@ class BidGui:
         self.end = None
         self.root = root
         self.closing = False
+        self.syncing_links = False
 
         root.title("Hibid Automation")
         # The title-bar X goes through the same close as the Quit button
@@ -109,13 +111,18 @@ class BidGui:
         bot_pwd_entry = ttk.Entry(mainframe, show="*", width=30, textvariable=self.bot_pwd, state='disabled')
         bot_pwd_entry.grid(column=2, row=4, sticky=(W))
 
+        # Paste either link; the other follows when the field loses focus
         ttk.Label(mainframe, text='*Hibid Management Link').grid(column=1, row=5, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.management_lot_link)
-        bot_pwd_entry.grid(column=2, row=5, sticky=(W))
+        mng_link_entry = ttk.Entry(mainframe, width=30, textvariable=self.management_lot_link)
+        mng_link_entry.grid(column=2, row=5, sticky=(W))
 
         ttk.Label(mainframe, text='*Bid Lot Link').grid(column=1, row=6, sticky=W)
-        bot_pwd_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
-        bot_pwd_entry.grid(column=2, row=6, sticky=(W))
+        bid_link_entry = ttk.Entry(mainframe, width=30, textvariable=self.bid_lot_link)
+        bid_link_entry.grid(column=2, row=6, sticky=(W))
+
+        for entry in (mng_link_entry, bid_link_entry):
+            entry.bind('<FocusOut>', lambda _: self.sync_links())
+            entry.bind('<Return>', lambda _: self.sync_links())
 
         ttk.Label(mainframe, text=">100 15% switch").grid(column=1, row=7, sticky=W)
         twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
@@ -202,6 +209,12 @@ class BidGui:
             self.management_lot_link.set(mng_link)
             self.bid_lot_link.set(bid_link)
 
+        # Which link the user touched last, so sync_links knows which one leads.
+        # Traced after the saved links are loaded, so loading them counts as neither.
+        self.link_edited = None
+        self.management_lot_link.trace_add('write', lambda *_: self.mark_link_edited('mng'))
+        self.bid_lot_link.trace_add('write', lambda *_: self.mark_link_edited('bid'))
+
 
         # Set twenty switch as default
         self.twenty_switch.set(False)
@@ -244,8 +257,41 @@ class BidGui:
             self.show_log(error_details)
 
 
+    def mark_link_edited(self, which):
+        if not self.syncing_links:
+            self.link_edited = which
+
+    def sync_links(self):
+        """Fill the other link from the one last edited, when they name different auctions.
+
+        The manager link is always on my.hibid.com. The bid link keeps the
+        company subdomain of the bid link already there, so it can only be
+        derived once a bid link has been entered.
+        """
+        which, self.link_edited = self.link_edited, None
+        mng_link, bid_link = self.management_lot_link.get(), self.bid_lot_link.get()
+        source = parse_auction_link(mng_link if which == 'mng' else bid_link) if which else None
+        if not source or source == parse_auction_link(mng_link if which == 'bid' else bid_link):
+            return
+        auction_id, slug = source
+        self.syncing_links = True
+        try:
+            if which == 'bid':
+                self.management_lot_link.set(manager_link_for(auction_id, slug))
+                self.show_message(f'管理链接已按拍卖 {auction_id} 自动填好')
+            else:
+                host = urlparse(bid_link.strip()).hostname
+                if not host or host == 'my.hibid.com':
+                    self.show_message('Bid Lot Link 没法自动推出，请手动填一次')
+                    return
+                self.bid_lot_link.set(bid_link_for(host, auction_id, slug))
+                self.show_message(f'Bid Lot Link 已按拍卖 {auction_id} 自动填好')
+        finally:
+            self.syncing_links = False
+
     # Login manager and bot accounts
     def login_accounts(self):
+        self.sync_links()
         if self.check_form():
             future = asyncio.run_coroutine_threadsafe(self.login_accounts_async(), self.loop)
             def done_callback(fut):
@@ -617,6 +663,7 @@ class BidGui:
 
 
     def start_filter_bidder(self):
+        self.sync_links()
         asyncio.run_coroutine_threadsafe(self.start_filter_bidder_async(), self.loop)
 
 

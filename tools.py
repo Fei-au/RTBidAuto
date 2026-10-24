@@ -1,5 +1,6 @@
 from urllib.parse import urlparse, urlunparse
 import os
+import re
 from pathlib import Path
 import json
 import requests
@@ -47,11 +48,33 @@ def save_credentials(bot_acc, bot_pwd, mng_acc, mng_pwd, mng_link, bid_link):
 
 
 def get_auction_id(mng_link):
+    parsed_link = parse_auction_link(mng_link)
+    if parsed_link:
+        return parsed_link[0]
     link = get_upper_level_url(mng_link)
     parsed = urlparse(link)
     path_parts = parsed.path.rstrip('/').split('/')
     auction_id = path_parts[-1] if path_parts else ''
     return auction_id
+
+
+# Both links name the same auction the same way:
+#   https://my.hibid.com/auctioneer/lotstats/index/787033/<slug>/
+#   https://<company>.hibid.com/catalog/787033/<slug>
+AUCTION_PATH = re.compile(r'/(?:auctioneer/lotstats/index|catalog)/(\d+)(?:/([^/?#]+))?')
+
+def parse_auction_link(url):
+    """(auction id, slug) from a manager or a catalog link; None if it is neither."""
+    match = AUCTION_PATH.search((url or '').strip())
+    if not match:
+        return None
+    return match.group(1), match.group(2) or ''
+
+def manager_link_for(auction_id, slug):
+    return f'https://my.hibid.com/auctioneer/lotstats/index/{auction_id}/' + (f'{slug}/' if slug else '')
+
+def bid_link_for(host, auction_id, slug):
+    return f'https://{host}/catalog/{auction_id}' + (f'/{slug}' if slug else '')
     
 
 def get_local_dir():
