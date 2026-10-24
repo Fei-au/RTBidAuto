@@ -44,7 +44,6 @@ class BidGui:
 
     def __init__(self, root) -> None:
         self.registered = False
-        self.message = None
         self.log = None
         self.playwright = None
         self.mng_browser = None
@@ -86,7 +85,7 @@ class BidGui:
         self.block_us_bidder_switch = BooleanVar()
 
 
-        mainframe.grid_rowconfigure(151, weight=1)  # Log/message row
+        mainframe.grid_rowconfigure(151, weight=1)  # Lets the log pane stretch
         mainframe.grid_columnconfigure(1, weight=1)  # Left area start
         mainframe.grid_columnconfigure(2, weight=1)
         mainframe.grid_columnconfigure(3, weight=1)  # Left area end
@@ -159,18 +158,8 @@ class BidGui:
         self.stop_filter = ttk.Button(mainframe, text='Stop Filter Bidder', command=self.stop_filter_bidder, state='disabled')
         self.stop_filter.grid(ipadx=5, column=3, row=112, sticky=(W))
 
-        # Msg area setup
-        self.message = Text(mainframe, wrap="word", height=30)
-        self.message.grid(column=1, row=151, columnspan=3,  sticky=(N, S, W, E))
-        self.message.config(state="disabled")  # Start as read-only
-
-        # Scrollbar for the msg area
-        self.scrollbar = ttk.Scrollbar(mainframe, orient="vertical", command=self.message.yview)
-        self.scrollbar.grid(column=4, row=151, sticky=(N, S, W, E))
-        self.message["yscrollcommand"] = self.scrollbar.set
-
-        # Log area setup
-        self.log_text = Text(mainframe, wrap="word", height=30)
+        # Log area setup: the one log pane, messages included
+        self.log_text = Text(mainframe, wrap="word", width=60, height=30)
         self.log_text.grid(column=5, row=1, rowspan=151, columnspan=3, sticky=(N, S, E, W))
         self.log_text.config(state="disabled")  # Start as read-only
 
@@ -425,8 +414,7 @@ class BidGui:
 
         Both run off the Tk thread and die with the process, so the window
         stays up until they finish or CLOSE_UPLOAD_TIMEOUT runs out. The upload
-        sends only the log box, not the message box, and is gated on the same
-        backend switch as the other remote logs.
+        is gated on the same backend switch as the other remote logs.
         """
         if self.closing:
             return
@@ -492,23 +480,8 @@ class BidGui:
                 pass
 
     def show_message(self, msg):
-        # Enable text widget to insert new msg
-        self.message.config(state="normal")
-
-        # Insert log at the end with a new line
-        self.message.insert("end", f"[{datetime.datetime.now().replace(microsecond=0)}]: " + str(msg) + "\n")
-
-        # Scroll to the end
-        self.message.see("end")
-
-        # Disable text widget to prevent editing
-        self.message.config(state="disabled")
-
-    # def hide_message(self):
-    #     if(self.message):
-    #         # Enable text widget to insert new msg
-    #         self.message.config(state="normal")
-    #         self.message.("end", msg + "\n")
+        # Messages share the log pane; there is no separate message box any more
+        self.show_log(msg)
 
     def show_log(self, log):
         # Enable text widget to insert new log
@@ -655,19 +628,17 @@ class BidGui:
             self.show_message('开始竞拍者过滤')
             block_us_switch = self.block_us_bidder_switch.get()
             try:
-                result = await self.login_filter_bidder_async()
+                await self.login_filter_bidder_async()
                 mng_acc = self.manager_acc.get()
                 # TODO: Add inputs to those fields and pass to filter bidder
                 # reputation = self.reputation.get()
                 # high_value = self.high_value.get()
                 # high_value_percent = self.high_value_percent.get()
-                self.show_message(result)
-                self.show_message('过滤运行中')
 
                 self.save_info()
-                result2 = await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
+                # The filter log only names who got blocked; start and stop bracket it
+                await self.automation.filter_bidder(self.mng_bidder_page, self.auction_id, mng_acc=mng_acc, block_us_switch=block_us_switch)
                 self.stop_filter_bidder()
-                self.show_message(result2)
             except Exception as e:
                 self.show_log(f'竞拍者过滤出错：{e}')
 

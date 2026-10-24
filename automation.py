@@ -560,7 +560,6 @@ class Automation:
             # return previous_price, previous_price, 'failed'
             
     async def decline_items(self, bidder_id, page, total_bid_amount_a):
-        self.show_log(f'[{bidder_id}] 正在拒绝其全部出价')
         await total_bid_amount_a.click()
         bid_history_modal = page.locator('div#bid-history-modal div.modal-content')
         await page.wait_for_load_state('networkidle')
@@ -582,11 +581,9 @@ class Automation:
             await edit_modal_footer.get_by_text('Save').click()
             # After click save, the whole page will reload, so wait the network
             await page.wait_for_load_state('networkidle')
-        self.show_log(f'[{bidder_id}] 出价已全部拒绝')
         await bid_history_modal.get_by_label('Close').click()
-        
+
     async def block_profile(self, bidder_id, page, bidder_profile_ele):
-        self.show_log(f'[{bidder_id}] 正在封禁账号')
         bidder_id_ele_a = bidder_profile_ele.get_by_role('link').nth(0)
         try:
             await bidder_id_ele_a.click()
@@ -607,7 +604,6 @@ class Automation:
         except Exception:
             self.show_log(f'[{bidder_id}] 封禁记录写入远端失败')
             self.show_log(traceback.format_exc())
-        self.show_log(f'[{bidder_id}] 已封禁')
         return True
 
     async def wait_for_register_list(self, page, timeout=30000):
@@ -662,7 +658,6 @@ class Automation:
                 high_value_bid_count += 1
             else:
                 continue
-        self.show_log(f'[{bidder_id}] 高价领先 {high_value_bid_count} / 领先总数 {winning_bid_count}')
         await bid_history_modal.get_by_label('Close').click()
         if winning_bid_count != 0 and (high_value_bid_count / winning_bid_count) >= high_value_percent:
             return True
@@ -770,7 +765,6 @@ class Automation:
         self.filter_client = mng_acc
         try:
             self.already_blocked_list = await asyncio.to_thread(fetch_blocked_bidders, auction_id)
-            self.show_log(f'已从远端载入 {len(self.already_blocked_list)} 个封禁过的竞拍者')
         except Exception:
             self.already_blocked_list = []
             self.show_log('远端封禁名单读取失败，按空名单开始')
@@ -811,7 +805,6 @@ class Automation:
                         score_text = await tr.locator('td.score a.bidder-profile div').first.inner_text()
                         score = int(score_text)
                         if score >= reputation:
-                            self.show_log(f'[{bidder_id}] 信誉分不低于 {reputation}，本轮结束')
                             round_continue = False
                             break
                         check_count += 1
@@ -829,7 +822,6 @@ class Automation:
                             continue
                         # 2. If amount is larger than high_value, do further investigate
                         if total_bid_amount > high_value:
-                            self.show_log(f"[{bidder_id}] 出价总额 {total_bid_amount}，进一步检查")
                             declined_flag = await self.is_win_item_half_high_value(bidder_id=bidder_id,
                                                                              page=page,
                                                                              total_bid_amount_a=total_bid_amount_a,
@@ -858,6 +850,7 @@ class Automation:
                                 # Page was force-refreshed; skip this entry, move on
                                 continue
                             block_count += 1
+                            self.show_log(f'已封禁 {bidder_id}（低信誉，高价出价过半）')
                         else:
                             continue
                     except Exception:
@@ -906,7 +899,6 @@ class Automation:
                             bidder_profile_location = bidder_profile.locator('[class="location"]')
                             location = await bidder_profile_location.inner_text()
                             if "United States" in location:
-                                self.show_log(f"[{bidder_id}] 美国竞拍者，封禁")
                                 data = {
                                     "transaction_id": transaction_id,
                                     "automation_link": url,
@@ -925,6 +917,7 @@ class Automation:
                                     # Page was force-refreshed; skip this entry, move on
                                     continue
                                 block_count += 1
+                                self.show_log(f'已封禁 {bidder_id}（美国竞拍者）')
                             else:
                                 round_continue = False
                                 break
@@ -944,9 +937,7 @@ class Automation:
                 # Every 90 seconds a round
                 time_diff = round((end - start).total_seconds(), 2)
                 if time_diff < 90:
-                    self.show_message(f'过滤第 {filter_round} 轮完成，用时 {time_diff} 秒')
                     sleep_time = round(90 - time_diff, 2)
-                    self.show_message(f'等待 {sleep_time} 秒后进入下一轮')
                     await asyncio.sleep(sleep_time)
         # TODO: Log this transaction
         try:
