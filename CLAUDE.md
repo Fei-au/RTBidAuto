@@ -62,6 +62,8 @@ That switch is answered by the backend, not by the build: `GET ${LOG_BACK}/confi
 
 Closing the app — the **Quit** button or the title-bar X (`WM_DELETE_WINDOW`), both routed to `BidGui.on_close` — uploads the log box once (right-hand pane only, not the message box) as `autobid_<auction_id>_<timestamp>.log` to `${LOG_BACK}/s3/upload`, the same endpoint rt-af-controller uses. The stop buttons do not upload. It is sent from memory on a daemon thread, gated on the same `is_online()` switch; since a daemon thread dies with the process, the window stays open (showing "正在上传日志") until the upload finishes or 15 s pass, then closes. A killed process, a crash or a power loss uploads nothing.
 
+Closing also shuts the browsers the app opened (`BidGui.close_browsers`, in parallel with the upload and under the same 15 s): the manager context, and the bot Chrome only when `ensure_bot_chrome` started it (`bot_chrome_process`). That Chrome gets CDP `Browser.close` so it exits cleanly and keeps its signed-in profile, and is terminated if it is still up 5 s later. A Chrome that was already on 9222 when the app attached is left open.
+
 ## Conventions
 
 - Async work runs on `BidGui.loop` (background thread); never block it from Tk callbacks — schedule with `run_coroutine_threadsafe` and use `add_done_callback` to update UI.

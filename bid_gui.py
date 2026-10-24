@@ -48,6 +48,8 @@ class BidGui:
         self.log = None
         self.playwright = None
         self.mng_browser = None
+        self.bot_browser = None
+        self.bot_chrome_process = None  # Set only when this app started the bot Chrome
         self.mng_bidder_page = None
         self.bot_page = None
         self.mng_page = None
@@ -415,44 +417,79 @@ class BidGui:
         self.show_log('正在停止，等当前这步做完')
         self.stop_automation_cleanup()
 
-    CLOSE_UPLOAD_TIMEOUT = 15   # seconds the window waits for the upload
+    CLOSE_UPLOAD_TIMEOUT = 15   # seconds the window waits for the upload and the browsers
 
     def on_close(self):
-        """Quit button and title-bar X: upload the log box once, then close.
+        """Quit button and title-bar X: upload the log box once, close the
+        browsers this app opened, then close.
 
-        The upload runs on a daemon thread, which dies with the process, so the
-        window stays up until it finishes or CLOSE_UPLOAD_TIMEOUT runs out.
-        Only the log box, not the message box. Gated on the same backend switch
-        as the other remote logs.
+        Both run off the Tk thread and die with the process, so the window
+        stays up until they finish or CLOSE_UPLOAD_TIMEOUT runs out. The upload
+        sends only the log box, not the message box, and is gated on the same
+        backend switch as the other remote logs.
         """
         if self.closing:
             return
         self.closing = True
+        self.automation.is_running = False
+        self.automation.is_filter_running = False
+        browsers = asyncio.run_coroutine_threadsafe(self.close_browsers(), self.loop)
+        pending = [lambda: not browsers.done()]
+
         text = self.log_text.get('1.0', 'end').rstrip()
-        if not text or not config.is_online():
-            self.root.destroy()
-            return
-        auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'autobid_{auction_id}_{timestamp}.log'
-        self.show_message('正在上传日志，传完自动关闭…')
+        if text and config.is_online():
+            auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'autobid_{auction_id}_{timestamp}.log'
+            self.show_message('正在上传日志，传完自动关闭…')
 
-        def worker():
-            try:
-                upload_log_text(text, filename, timeout=self.CLOSE_UPLOAD_TIMEOUT)
-            except Exception:
-                pass    # Closing anyway; nowhere left to report it
+            def worker():
+                try:
+                    upload_log_text(text, filename, timeout=self.CLOSE_UPLOAD_TIMEOUT)
+                except Exception:
+                    pass    # Closing anyway; nowhere left to report it
 
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
+            thread = threading.Thread(target=worker, daemon=True)
+            thread.start()
+            pending.append(thread.is_alive)
         deadline = time.time() + self.CLOSE_UPLOAD_TIMEOUT
 
         def close_when_done():
-            if thread.is_alive() and time.time() < deadline:
+            if any(busy() for busy in pending) and time.time() < deadline:
                 self.root.after(200, close_when_done)
             else:
                 self.root.destroy()
         close_when_done()
+
+    async def close_browsers(self):
+        """Close the manager browser, and the bot Chrome only if this app started it.
+
+        A bot Chrome that was already listening on 9222 is the user's own and
+        stays open. Ours is closed over CDP so Chrome shuts down cleanly and
+        keeps the signed-in profile; killing the process is the fallback.
+        """
+        if self.mng_browser:
+            try:
+                await self.mng_browser.close()
+            except Exception:
+                pass
+        process = self.bot_chrome_process
+        if process and process.poll() is None:
+            try:
+                browser = self.bot_browser or await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
+                cdp = await browser.new_browser_cdp_session()
+                await cdp.send('Browser.close')
+            except Exception:
+                pass    # The connection may drop before Chrome answers; the wait below decides
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, process.wait, 5)
+            except Exception:
+                process.terminate()
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+            except Exception:
+                pass
 
     def show_message(self, msg):
         # Enable text widget to insert new msg
@@ -499,6 +536,7 @@ class BidGui:
             return 'bot Chrome 启动失败，详见日志'
         try:
             browser = await self.playwright.chromium.connect_over_cdp("http://localhost:9222")
+            self.bot_browser = browser
             # Get the first existing context or create one if none exists
             contexts = browser.contexts
             if contexts:
@@ -592,7 +630,7 @@ class BidGui:
         command = chrome_launch_command(chrome_path, port, self.bid_lot_link.get().strip() or None)
         self.show_log('正在启动 bot Chrome')
         try:
-            subprocess.Popen(command, close_fds=True)
+            self.bot_chrome_process = subprocess.Popen(command, close_fds=True)
         except Exception:
             self.show_log(traceback.format_exc())
             return False
