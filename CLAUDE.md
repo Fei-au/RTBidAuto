@@ -42,6 +42,8 @@ For each lot in `lot_dict`:
 
 Bid placement clicks the increment button until exceeding target, steps back one, fills the amount, confirms — then handles a possible "Confirm Your Bid" reconfirmation modal.
 
+No repeat bids: `Automation.placed_bids` remembers, per lot of the current auction, the amount the bot placed and the target it bid against — on success, when no step fits under the target, and when HiBid answers "previously entered a maximum bid for X" (so a restart costs at most one refused bid per lot). A lot is skipped while its target is not above the remembered one; only a raised target (the customer raised their max) bids again. The comparison is against the target, not the current price, because the customer's proxy always answers the bot one step higher. Memory only, cleared when the bid link changes to another auction.
+
 ## Bidder filter ([automation.py:570](automation.py:570))
 
 Two passes per round on the auction's `register` page:

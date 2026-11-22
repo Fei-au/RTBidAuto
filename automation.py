@@ -38,6 +38,9 @@ class Automation:
         # get_bids_info fills this in from the manager site either way.
         self.lot_dict = {}
         self.bid_link = None
+        # What the bot already bid on each lot of this auction:
+        # lot -> {'price': amount placed (None if no step fit), 'target': ceiling it bid against}.
+        self.placed_bids = {}
         self.show_log = show_log
         self.show_message = show_message
         self.update_block_list = update_block_list
@@ -59,8 +62,34 @@ class Automation:
         self.is_running = False
     
     def set_bid_link(self, bid_link):
+        # Bids remembered for one auction mean nothing in another.
+        if bid_link != self.bid_link:
+            self.placed_bids = {}
         self.bid_link = bid_link
-        
+
+    # HiBid's answer when the amount equals a max bid this account already holds.
+    PREVIOUS_MAX_RE = re.compile(r'previously entered a maximum bid for\s*([0-9][0-9,]*(?:\.[0-9]+)?)', re.I)
+
+    def remember_bid(self, lot, price, target):
+        self.placed_bids[lot] = {'price': price, 'target': target}
+
+    def already_bid_to(self, lot, target):
+        """True when the bot already bid this lot as high as `target` allows.
+
+        The highest step at or below the target was placed against an earlier
+        target at least this high, so bidding again only repeats that amount and
+        HiBid refuses it. Only a target that has risen leaves room for a new bid.
+        The site's current price is no guide here: the customer's proxy always
+        answers our bid one step above it.
+        """
+        placed = self.placed_bids.get(lot)
+        return placed is not None and target <= placed['target']
+
+    def previous_max_from(self, message):
+        """The amount in HiBid's 'previously entered a maximum bid for X', or None."""
+        match = self.PREVIOUS_MAX_RE.search(message or '')
+        return float(match.group(1).replace(',', '')) if match else None
+
     def set_twenty_switch(self, twenty_switch):
         self.twenty_switch = twenty_switch
         self.show_log('15% 规则：' + ('开' if self.twenty_switch else '关'))
@@ -73,7 +102,7 @@ class Automation:
     
     async def login_bot(self, page, bot_acc, bot_pwd, url):
         # await page.goto(url)
-        self.bid_link = url
+        self.set_bid_link(url)
         await page.goto(url)
         #    # Add a random delay of 1 to 5 seconds to simulate human behavior
         # await asyncio.sleep(random.uniform(1, 5))
@@ -321,6 +350,7 @@ class Automation:
         # so totally 14*6=84 seconds fo bid, and 6 seconds for get lot info 
         limit = 14
         i = 0
+        already_bid_count = 0
         start = datetime.now()
         for lot in self.lot_dict:
             diff = (datetime.now() - start).total_seconds()
@@ -340,6 +370,9 @@ class Automation:
                 if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
                     # current bid price is less than max bid price, then bid
                     if bid_info.get('high_bid', 0) < bid_info['max_bid_price']:
+                        if self.already_bid_to(lot, bid_info['max_bid_price']):
+                            already_bid_count += 1
+                            continue
                         final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
                         # statistics
                         if status == 'success' and final_bid_price != 0:
@@ -363,6 +396,9 @@ class Automation:
                     else:
                         target_price = bid_info['max_bid_price']
                     if bid_info.get('high_bid', 0) < target_price:
+                        if self.already_bid_to(lot, target_price):
+                            already_bid_count += 1
+                            continue
                         final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
                         # statistics
                         if status == 'success' and final_bid_price != 0:
@@ -405,6 +441,8 @@ class Automation:
             except Exception:
                 self.show_log('上报出价日志失败')
                 self.show_log(traceback.format_exc())
+        if already_bid_count:
+            self.show_log(f'已出到上限、上限没涨的 lot {already_bid_count} 个，本轮跳过')
         try:
             if(len(item_log) != 0):
                     data = {
@@ -520,6 +558,9 @@ class Automation:
             bid_price_list.pop()
             
             if len(bid_price_list) == 0:
+                # Even the lowest allowed bid is above the target: nothing to do
+                # until the target rises.
+                self.remember_bid(lot, None, target_price)
                 await bid_modal.get_by_label("Close", exact=True).click()
                 return target_price, 'skip'
             else:
@@ -532,6 +573,7 @@ class Automation:
                     self.show_log(
                         f'lot {lot}：输入框里是 {submitted}，超过上限 {target_price}，不提交'
                     )
+                    self.remember_bid(lot, None, target_price)
                     await self.click_if_possible(
                         bid_modal.get_by_label("Close", exact=True).first, '关闭按钮', lot
                     )
@@ -549,11 +591,17 @@ class Automation:
                 # return 0, 'skip'
                 
                 # Click another confirm when bid price over too much
-                confirmed = await self.confirm_your_bid_modal(bid_modal, lot)
+                confirmed, message = await self.confirm_your_bid_modal(bid_modal, lot)
                 if confirmed:
+                    self.remember_bid(lot, bid_price_list[-1], target_price)
                     return bid_price_list[-1], 'success'
-                else:
-                    return target_price, 'skip'
+                # This account already holds a max bid at this amount, e.g. from
+                # before a restart. Remember it so later rounds stop repeating it.
+                previous_max = self.previous_max_from(message)
+                if previous_max is not None:
+                    self.remember_bid(lot, previous_max, target_price)
+                    self.show_log(f'lot {lot}：已挂过 {previous_max}，上限不涨就不再出')
+                return target_price, 'skip'
         except Exception as e:
             raise(e)
             # send error to server
@@ -1104,6 +1152,7 @@ class Automation:
             pass
         
     async def confirm_your_bid_modal(self, bid_modal, lot=''):
+        """(accepted, the site's message when it was not accepted)."""
         # This one is not guaranteed to render inside the bid modal.
         confirm_button = bid_modal.page.locator(self.RECONFIRM_BUTTON).first
         close_button = bid_modal.get_by_label("Close", exact=True).first
@@ -1119,10 +1168,11 @@ class Automation:
         # sampling once, because the site only closes it after the round trip.
         try:
             await bid_modal.first.wait_for(state='hidden', timeout=3000)
-            return True
+            return True, ''
         except Exception:
             pass
         # previous bid visible
+        message = ''
         try:
             message = ' '.join((await bid_modal.first.inner_text()).split())[:300]
             self.show_log(f'lot {lot}：出价未成功，网站提示：{message}')
@@ -1133,8 +1183,8 @@ class Automation:
                 await close_button.click(timeout=2000)
         except Exception:
             pass
-        return False
-    
+        return False, message
+
     def parse_amount(self, text):
         # None means "could not read it", which callers must treat as unsafe.
         match = self.BID_AMOUNT_RE.search(text or '')
