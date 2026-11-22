@@ -33,16 +33,14 @@ To ship Playwright's own browser as a fallback, install it into `playwright-brow
 
 The bot account drives the machine's own Chrome over CDP (`http://localhost:9222`). `BidGui.ensure_bot_chrome` reuses a Chrome already listening on that port; otherwise it locates `chrome.exe` (registry App Paths first, then the usual install folders) and starts it with the bid link open on `C:\chrome-dev-profile` — the profile the README has operators sign in on — or, on a machine without that folder, on `%LOCALAPPDATA%/AutoBid/chrome-bot-profile`. Either way it is the same plain `chrome.exe --remote-debugging-port` launch as the README's command, not a Playwright-launched browser, so it carries no automation flags. The bot account has to be signed in there once — the profile keeps the session — and `login_bot` checks for the `.welcome-label` header, printing a banner that asks for a sign-in when it is missing. Use the auctioneer subdomain (e.g. `company.bid.com`, not `www.bid.com`). The manager account uses a persistent context at `%LOCALAPPDATA%/AutoBid/playwright-mng-data`, driving the installed Chrome via `channel="chrome"` and falling back to Playwright's own browser if that fails.
 
-## Bidding logic ([automation.py:253](automation.py:253))
+## Bidding logic ([automation.py](automation.py), `start_automation_async`)
 
-For each lot in `lot_dict`:
-- `msrp_price < 100`: bid up to `max_bid_price` if current `high_bid` is lower.
-- `msrp_price >= 100` (or 0): target = `max_bid_price`. With "15% switch" on, target = `max(max_bid_price, msrp_price * multiplier)` where multiplier is `0.15` (default), `0.08` (`second_hand`), or `0` (`skipped`).
+For each lot in `lot_dict`, the target is the lot's `max_bid_price` (the top max bid on the manager page), and the bot bids up to it when `high_bid` is lower. Only lots the round's collection read have a target; every other lot is skipped. The imported file only supplies lot numbers (its `msrp_price` / `skipped` / `second_hand` columns belonged to the removed 15% rule and are ignored).
 - Mode 1 = single pass; Mode 2 = infinite loop with a 90s round cadence and 14-lot cap per round, both backend-configurable (`round_seconds`, `round_lot_cap`; see `infinite_bid` in [bid_gui.py](bid_gui.py)).
 
 Bid placement clicks the increment button until exceeding target, steps back one, fills the amount, confirms — then handles a possible "Confirm Your Bid" reconfirmation modal.
 
-No repeat bids: `Automation.placed_bids` remembers, per lot of the current auction, the amount the bot placed and the target it bid against — on success, when no step fits under the target, and when HiBid answers "previously entered a maximum bid for X" (so a restart costs at most one refused bid per lot). A lot is skipped while its target is not above the remembered one; only a raised target (the customer raised their max) bids again. The comparison is against the target, not the current price, because the customer's proxy always answers the bot one step higher. Memory only, cleared when the bid link changes to another auction.
+No repeat bids: `Automation.placed_bids` remembers, per lot of the current auction, the amount the bot placed and the target it bid against — on success, when no step fits under the target, and when HiBid answers "previously entered a maximum bid for X" (so a restart costs at most one refused bid per lot). That answer is about the account, not the bot: a max placed by hand on the bot account is recorded the same way, with the ceiling raised to X, since HiBid accepts nothing up to it. A lot is skipped while its target is not above the remembered one; only a raised target (someone raised their max) bids again. The current price cannot tell whether our bid is still standing: every HiBid bid is a max bid and the page shows only one step over the second highest, so after a bid that landed the price can sit far below it (auction 794930, lot 4: bid 32.5, next round 4.0). Memory only, cleared when the bid link changes to another auction.
 
 ## Bidder filter ([automation.py:570](automation.py:570))
 
@@ -83,5 +81,5 @@ Closing also shuts the browsers the app opened (`BidGui.close_browsers`, in para
 
 - Async work runs on `BidGui.loop` (background thread); never block it from Tk callbacks — schedule with `run_coroutine_threadsafe` and use `add_done_callback` to update UI.
 - UI text widgets are read-only; always toggle `state="normal"` → insert → `state="disabled"` (see `show_log` / `show_message`).
-- Lot keys in `lot_dict` are strings (CSV `lot` column is cast to `str` in `file_to_lot_dict`).
+- Lot keys in `lot_dict` are strings (CSV `lot` column is cast to `str` in `file_to_lot_dict`, and the manager page's lot numbers are read as text).
 - Credentials file stores manager + bot creds and the two links; bot creds inputs are disabled in the UI by design — login is via CDP-attached Chrome.

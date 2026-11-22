@@ -49,9 +49,6 @@ class Automation:
         self.registered = False
         self.bid_cust_win_count = 0
         self.bid_to_cust_max = 0
-        self.bid_bot_win_count = 0
-        self.bid_to_bot_max = 0
-        self.twenty_switch = False
         self.is_running = False
         self.is_filter_running = False
         self.already_blocked_list = []
@@ -81,8 +78,11 @@ class Automation:
         The highest step at or below the target was placed against an earlier
         target at least this high, so bidding again only repeats that amount and
         HiBid refuses it. Only a target that has risen leaves room for a new bid.
-        The site's current price is no guide here: the customer's proxy always
-        answers our bid one step above it.
+
+        The current price says nothing either way. Every bid on HiBid is a max
+        bid and the price shows only one step over the second highest, so after
+        a bid that landed it can sit far below our amount (lot 4 of auction
+        794930: bid 32.5, next round's price 4.0, and 32.5 again was refused).
         """
         placed = self.placed_bids.get(lot)
         return placed is not None and target <= placed['target']
@@ -92,10 +92,6 @@ class Automation:
         match = self.PREVIOUS_MAX_RE.search(message or '')
         return float(match.group(1).replace(',', '')) if match else None
 
-    def set_twenty_switch(self, twenty_switch):
-        self.twenty_switch = twenty_switch
-        self.show_log('15% 规则：' + ('开' if self.twenty_switch else '关'))
-        
     def log_auto_bid(self, func):
         pass
     
@@ -209,15 +205,11 @@ class Automation:
         # This does not work, cannot find any options by any methods
         # await page.click('option[value="5"]')  # This might vary based on the custom implementation
 
-        # clean self.lot_dict first, only leave msrp price
+        # Forget last round's prices; only what this collection reads counts.
         if self.lot_dict is None:
             self.lot_dict = {}
         for lot in self.lot_dict:
-            self.lot_dict[lot] = {
-                'msrp_price': self.lot_dict[lot]['msrp_price'],
-                'skipped': self.lot_dict[lot]['skipped'],
-                'second_hand': self.lot_dict[lot]['second_hand'],
-            }
+            self.lot_dict[lot] = {}
         
         if mode == 1:
             query = '?q=&buyer=0&hide=true&SortOrder=5&ProductStatus=0&All=True'
@@ -267,12 +259,9 @@ class Automation:
                 lot_info['high_bid'] = high_bid
             else:
                 self.lot_dict[lot] = {
-                    'msrp_price': 0,
                     'max_bid_price': max_bid_price,
                     'bidder_id': bidder_id,
                     'high_bid': high_bid,
-                    'skipped': False,
-                    'second_hand': False,
                 }
             valid_lot_count += 1
         self.show_log(f'已收集 {valid_lot_count} 个 lot 的出价信息')
@@ -401,63 +390,27 @@ class Automation:
             visited.add(lot)
 
             bid_info = self.lot_dict[lot]
-            
-            if pd.isna(bid_info.get("max_bid_price")):
-                bid_info['max_bid_price'] = 0
-            if pd.isna(bid_info.get("msrp_price")):
-                bid_info['msrp_price'] = 0
+            # The top max bid on the lot, from the manager page. A lot this
+            # round did not read has none, so it is left alone.
+            target_price = bid_info.get('max_bid_price', 0)
+            if pd.isna(target_price):
+                target_price = 0
+            high_bid = bid_info.get('high_bid', 0)
 
             final_bid_price = 0
             status = ''
             try:
-                if bid_info['msrp_price'] > 0 and bid_info['msrp_price'] < 100:
-                    # current bid price is less than max bid price, then bid
-                    if bid_info.get('high_bid', 0) < bid_info['max_bid_price']:
-                        if self.already_bid_to(lot, bid_info['max_bid_price']):
-                            already_bid_count += 1
-                            continue
-                        final_bid_price, status = await self.bot_bid(bot_page, lot, bid_info['max_bid_price'])
-                        # statistics
-                        if status == 'success' and final_bid_price != 0:
-                            self.bid_cust_win_count += 1
-                            self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
-                    else:
-                        at_price_count += lot in collected
-                        continue
-                # If no msrp price, bid to max_bid_price
-                elif bid_info['msrp_price'] >= 100 or bid_info['msrp_price'] == 0:
-                    # current bid price is less than max bid price or 13% of msrp price, then bid
-                    # If the lot has never been bidden, do we still need to bid? Which means the high_bid or max_bid_price =  0
-                    if self.twenty_switch:
-                        multiplier = 0.15
-                        if bid_info.get('second_hand'):
-                            multiplier = 0.08
-                            self.show_log(f'lot {lot}：二手，系数 {multiplier}')
-                        if bid_info.get('skipped'):
-                            multiplier = 0
-                            self.show_log(f'lot {lot}：跳过 15% 规则')
-                        target_price = max(bid_info['max_bid_price'], round(bid_info['msrp_price'] * multiplier, 2))
-                    else:
-                        target_price = bid_info['max_bid_price']
-                    if bid_info.get('high_bid', 0) < target_price:
-                        if self.already_bid_to(lot, target_price):
-                            already_bid_count += 1
-                            continue
-                        final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
-                        # statistics
-                        if status == 'success' and final_bid_price != 0:
-                            if(target_price == bid_info['max_bid_price']):
-                                self.bid_cust_win_count += 1
-                                self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
-                            else:
-                                self.bid_bot_win_count += 1
-                                self.bid_to_bot_max += (final_bid_price - bid_info.get('high_bid', 0))
-                    else:
-                        at_price_count += lot in collected
-                        continue
-                else:
-                    self.show_log(f'lot {lot}：没有 msrp，跳过')
+                if high_bid >= target_price:
+                    at_price_count += lot in collected
                     continue
+                if self.already_bid_to(lot, target_price):
+                    already_bid_count += 1
+                    continue
+                final_bid_price, status = await self.bot_bid(bot_page, lot, target_price)
+                # statistics
+                if status == 'success' and final_bid_price != 0:
+                    self.bid_cust_win_count += 1
+                    self.bid_to_cust_max += (target_price - high_bid)
                 i += 1
                 success_count += status == 'success'
                 await asyncio.sleep(random.random() + 1)  # Add a random delay 1-2s to simulate human behavior
@@ -509,8 +462,9 @@ class Automation:
                                     # "message": "",
                                     "cust_win_count": self.bid_cust_win_count,
                                     "cust_win_increased_price": self.bid_to_cust_max,
-                                    "bot_win_count": self.bid_bot_win_count,
-                                    "bot_win_increased_price": self.bid_to_bot_max
+                                    # The 15% rule is gone; the backend still requires these.
+                                    "bot_win_count": 0,
+                                    "bot_win_increased_price": 0.0
                                 }
             text = add_log('/transaction', transaction_data)
         except Exception:
@@ -518,12 +472,9 @@ class Automation:
                 self.show_log(traceback.format_exc())
         self.show_message('本次自动出价汇总')
         self.show_message(f'按客户委托价成交 {self.bid_cust_win_count} 个，加价合计 {self.bid_to_cust_max}')
-        self.show_message(f'按 15% 规则出价 {self.bid_bot_win_count} 个，加价合计 {self.bid_to_bot_max}')
         # reset statistics
         self.bid_cust_win_count = 0
         self.bid_to_cust_max = 0
-        self.bid_bot_win_count = 0
-        self.bid_to_bot_max = 0
         return '本轮自动出价结束'
         
     async def bot_bid(self, page, lot, target_price):
@@ -642,11 +593,13 @@ class Automation:
                 if confirmed:
                     self.remember_bid(lot, bid_price_list[-1], target_price)
                     return bid_price_list[-1], 'success'
-                # This account already holds a max bid at this amount, e.g. from
-                # before a restart. Remember it so later rounds stop repeating it.
+                # This account already holds a max bid of at least this amount:
+                # ours from before a restart, or one placed by hand on the same
+                # account. HiBid takes only larger bids, so nothing up to it can
+                # go through; remember it as the ceiling too.
                 previous_max = self.previous_max_from(message)
                 if previous_max is not None:
-                    self.remember_bid(lot, previous_max, target_price)
+                    self.remember_bid(lot, previous_max, max(target_price, previous_max))
                     self.show_log(f'lot {lot}：已挂过 {previous_max}，上限不涨就不再出')
                 return target_price, 'skip'
         except Exception as e:
@@ -1255,5 +1208,6 @@ class Automation:
         with open(filepath, 'r') as f:
             df = pd.read_csv(f)
             df['lot'] = df['lot'].astype(str)  # Convert the 'lot' column to string type
-            self.lot_dict = df.set_index('lot')[['msrp_price', 'skipped', 'second_hand']].to_dict('index')
+            # Only the lot numbers matter now; msrp and the 15% columns are ignored.
+            self.lot_dict = {lot: {} for lot in df['lot']}
             self.show_log(f'文件已导入，共 {len(self.lot_dict)} 个 lot')

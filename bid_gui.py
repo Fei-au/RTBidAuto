@@ -89,7 +89,6 @@ class BidGui:
         self.management_lot_link = StringVar()
         self.bid_lot_link = StringVar()
 
-        self.twenty_switch = BooleanVar()
         self.block_us_bidder_switch = BooleanVar()
 
 
@@ -129,10 +128,6 @@ class BidGui:
         for entry in (mng_link_entry, bid_link_entry):
             entry.bind('<FocusOut>', lambda _: self.sync_links())
             entry.bind('<Return>', lambda _: self.sync_links())
-
-        ttk.Label(mainframe, text=">100 15% switch").grid(column=1, row=7, sticky=W)
-        twenty_switch = ttk.Checkbutton(mainframe, variable=self.twenty_switch)
-        twenty_switch.grid(column=2, row=7, sticky=(W))
 
         ttk.Button(mainframe, text='1. Open Auction File', command=self.open_file).grid(ipadx=5, column=1, row=101, sticky=W)
         ttk.Button(mainframe, text='2. Login Accounts', command=self.login_accounts).grid(ipadx=5, column=2, row=101, sticky=W)
@@ -222,9 +217,6 @@ class BidGui:
         self.bid_lot_link.trace_add('write', lambda *_: self.mark_link_edited('bid'))
 
 
-        # Set twenty switch as default
-        self.twenty_switch.set(False)
-
         # Set block us bidder True as default
         self.block_us_bidder_switch.set(True)
 
@@ -255,7 +247,7 @@ class BidGui:
         self.loop.run_forever()
 
 
-    # Open file dialog to import auction export file, must have msrp_price and lot columns
+    # Open file dialog to import auction export file; only its lot column is used
     def open_file(self):
         try:
             filepath = filedialog.askopenfilename()
@@ -329,7 +321,6 @@ class BidGui:
     def infinite_bid(self):
         if not self.automation.is_running:
             self.automation.is_running = True
-            self.automation.set_twenty_switch(self.twenty_switch.get())
             self.stop_button.config(state='normal')
             self.infinate_button.config(state='disabled')
             self.start_button.config(state='disabled')
@@ -411,7 +402,6 @@ class BidGui:
         try:
             if not self.automation.is_running:
                 self.automation.is_running = True
-                self.automation.set_twenty_switch(self.twenty_switch.get())
                 self.stop_button.config(state='normal')
                 self.start_button.config(state='disabled')
                 self.infinate_button.config(state='disabled')
