@@ -571,7 +571,7 @@ class Automation:
                     self.show_log(
                         f'lot {lot}：输入框里是 {submitted}，超过上限 {target_price}，不提交'
                     )
-                    self.remember_bid(lot, None, target_price)
+                    # A failure, not a bid: not remembered, so the next round tries again.
                     await self.click_if_possible(
                         bid_modal.get_by_label("Close", exact=True).first, '关闭按钮', lot
                     )
