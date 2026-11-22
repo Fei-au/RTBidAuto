@@ -400,7 +400,9 @@ class Automation:
             final_bid_price = 0
             status = ''
             try:
-                if high_bid >= target_price:
+                # Written as "not below" so a price that did not parse (NaN)
+                # skips the lot instead of bidding blind.
+                if not high_bid < target_price:
                     at_price_count += lot in collected
                     continue
                 if self.already_bid_to(lot, target_price):
