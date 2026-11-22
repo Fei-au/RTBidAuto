@@ -38,7 +38,7 @@ The bot account drives the machine's own Chrome over CDP (`http://localhost:9222
 For each lot in `lot_dict`:
 - `msrp_price < 100`: bid up to `max_bid_price` if current `high_bid` is lower.
 - `msrp_price >= 100` (or 0): target = `max_bid_price`. With "15% switch" on, target = `max(max_bid_price, msrp_price * multiplier)` where multiplier is `0.15` (default), `0.08` (`second_hand`), or `0` (`skipped`).
-- Mode 1 = single pass; Mode 2 = infinite loop with a 90s round cadence and 14-lot cap per round (see `infinite_bid` in [bid_gui.py:280](bid_gui.py:280)).
+- Mode 1 = single pass; Mode 2 = infinite loop with a 90s round cadence and 14-lot cap per round, both backend-configurable (`round_seconds`, `round_lot_cap`; see `infinite_bid` in [bid_gui.py](bid_gui.py)).
 
 Bid placement clicks the increment button until exceeding target, steps back one, fills the amount, confirms — then handles a possible "Confirm Your Bid" reconfirmation modal.
 
@@ -62,7 +62,20 @@ That switch is answered by the backend, not by the build: `GET ${LOG_BACK}/confi
 
 `LOG_BACK` itself stays in `.env` — it is what tells the client where to ask.
 
-Closing the app — the **Quit** button or the title-bar X (`WM_DELETE_WINDOW`), both routed to `BidGui.on_close` — uploads the log box once (right-hand pane only, not the message box) as `autobid_<auction_id>_<timestamp>.log` to `${LOG_BACK}/s3/upload`, the same endpoint rt-af-controller uses. The stop buttons do not upload. It is sent from memory on a daemon thread, gated on the same `is_online()` switch; since a daemon thread dies with the process, the window stays open (showing "正在上传日志") until the upload finishes or 15 s pass, then closes. A killed process, a crash or a power loss uploads nothing.
+The same answer carries tuning values, read with `config.get(key)`; the backend passes every key of its `bidLog.client_config` documents through (`default`, then the `MNG_ACC` document), and the client falls back to `config.DEFAULTS` for a missing or malformed value. Changing a value is a Mongo edit, live within 5 minutes; a new key still needs a build that reads it.
+
+| key | default | |
+|---|---|---|
+| `log_round_summary` | `true` | One log line per bidding round: lots read (number span), bid / succeeded, already at ceiling, price already at target, not reached for time or cap |
+| `log_upload_minutes` | `30` | Upload the log box this often while the app is open, if it has grown; `0` = never |
+| `log_upload_lot_step` | `500` | Upload when the closing lot (lowest lot read in an infinite-bid round) passes each multiple; `0` = never |
+| `round_seconds` | `90` | Infinite-bid round length (minimum 10) |
+| `round_lot_cap` | `14` | Most lots bid per infinite-bid round |
+| `collect_pages` | `1` | Manager lot-stats pages read per collection, 100 lots each, following the pager's "Next" |
+
+Besides those, an infinite-bid collection that comes back empty after rounds that had lots uploads once more ("没有新的 lot 了"). Every running upload (`BidGui.upload_log_while_running`) is a complete copy of the log box on a daemon thread, gated on `is_online()`, and reports one line in the log.
+
+Closing the app — the **Quit** button or the title-bar X (`WM_DELETE_WINDOW`), both routed to `BidGui.on_close` — uploads the log box once (right-hand pane only, not the message box) as `autobid_<auction_id>_<timestamp>.log` to `${LOG_BACK}/s3/upload`, the same endpoint rt-af-controller uses. The stop buttons do not upload. It is sent from memory on a daemon thread, gated on the same `is_online()` switch; since a daemon thread dies with the process, the window stays open (showing "正在上传日志") until the upload finishes or 15 s pass, then closes. A killed process, a crash or a power loss uploads nothing more; what the running uploads above already sent stays in S3.
 
 Closing also shuts the browsers the app opened (`BidGui.close_browsers`, in parallel with the upload and under the same 15 s): the manager context, and the bot Chrome only when `ensure_bot_chrome` started it (`bot_chrome_process`). That Chrome gets CDP `Browser.close` so it exits cleanly and keeps its signed-in profile, and is terminated if it is still up 5 s later. A Chrome that was already on 9222 when the app attached is left open.
 

@@ -62,6 +62,12 @@ class BidGui:
         self.root = root
         self.closing = False
         self.syncing_links = False
+        # Log uploads while running (see check_log_upload_timer / check_log_upload_lots)
+        self.last_log_upload = time.time()
+        self.last_uploaded_length = 0
+        self.next_upload_lot = None
+        self.had_lots = False
+        self.end_uploaded = False
 
         root.title("Hibid Automation")
         # The title-bar X goes through the same close as the Quit button
@@ -231,6 +237,10 @@ class BidGui:
         # never blocks the UI, and a backend we cannot reach leaves the last
         # known answer in force.
         config.start_background_refresh()
+
+        # Upload the log box now and then while running, so a run that is never
+        # closed with Quit still leaves its log behind.
+        self.root.after(self.LOG_UPLOAD_CHECK_MS, self.check_log_upload_timer)
     #     self.loop = asyncio.get_event_loop()
     #     self.root = root
     #     self.root.after(100, self.process_events)
@@ -329,8 +339,9 @@ class BidGui:
             self.end = None
 
             async def sleep_func(diff):
-                if diff < 90:
-                    sleep_time = round(90 - diff, 2)
+                round_seconds = max(10, config.get('round_seconds'))
+                if diff < round_seconds:
+                    sleep_time = round(round_seconds - diff, 2)
                     self.show_message(f'等待 {sleep_time} 秒后进入下一轮')
                     await asyncio.sleep(sleep_time)
                 return
@@ -348,6 +359,7 @@ class BidGui:
                     try:
                         res = fut.result()
                         self.show_message(res)
+                        self.root.after(0, self.check_log_upload_lots)
                         if self.automation.is_running:
                             automation()
                         else:
@@ -453,6 +465,75 @@ class BidGui:
         self.stop_automation_cleanup()
 
     CLOSE_UPLOAD_TIMEOUT = 15   # seconds the window waits for the upload and the browsers
+    LOG_UPLOAD_CHECK_MS = 60_000
+    RUNNING_UPLOAD_TIMEOUT = 30
+
+    def log_upload_payload(self):
+        """(whole log box, file name) on the Tk thread, or None when the box is empty."""
+        text = self.log_text.get('1.0', 'end').rstrip()
+        if not text:
+            return None
+        auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        return text, f'autobid_{auction_id}_{timestamp}.log'
+
+    def upload_log_while_running(self, reason):
+        """Upload the whole log box on a daemon thread; never blocks the UI.
+
+        Each upload is a complete copy, so the newest file in S3 is the whole run.
+        Call on the Tk thread.
+        """
+        if self.closing or not config.is_online():
+            return
+        payload = self.log_upload_payload()
+        if not payload:
+            return
+        text, filename = payload
+        self.last_log_upload = time.time()
+        self.last_uploaded_length = len(text)
+
+        def worker():
+            try:
+                upload_log_text(text, filename, timeout=self.RUNNING_UPLOAD_TIMEOUT)
+                outcome = f'日志已上传（{reason}）'
+            except Exception as e:
+                outcome = f'日志上传失败（{reason}）：{e}'
+            if not self.closing:
+                self.root.after(0, lambda: self.show_log(outcome))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def check_log_upload_timer(self):
+        """Every minute: upload once log_upload_minutes have passed and the log has grown."""
+        if self.closing:
+            return
+        try:
+            minutes = config.get('log_upload_minutes')
+            grown = len(self.log_text.get('1.0', 'end').rstrip()) > self.last_uploaded_length
+            if minutes > 0 and grown and time.time() - self.last_log_upload >= minutes * 60:
+                self.upload_log_while_running(f'每 {minutes} 分钟')
+        finally:
+            self.root.after(self.LOG_UPLOAD_CHECK_MS, self.check_log_upload_timer)
+
+    def check_log_upload_lots(self):
+        """After each infinite-bid collection: upload when the closing lot passes a
+        multiple of log_upload_lot_step, and once when no lots are left to read."""
+        lots = self.automation.collected_lots
+        if not lots:
+            if self.had_lots and not self.end_uploaded:
+                self.end_uploaded = True
+                self.upload_log_while_running('没有新的 lot 了')
+            return
+        self.had_lots = True
+        self.end_uploaded = False
+        step = config.get('log_upload_lot_step')
+        closing = self.automation.closing_lot()
+        if step <= 0 or closing is None:
+            return
+        if self.next_upload_lot is not None and closing >= self.next_upload_lot:
+            self.upload_log_while_running(f'到 lot {self.next_upload_lot}')
+        if self.next_upload_lot is None or closing >= self.next_upload_lot:
+            self.next_upload_lot = (closing // step + 1) * step
 
     def on_close(self):
         """Quit button and title-bar X: upload the log box once, close the
@@ -470,11 +551,9 @@ class BidGui:
         browsers = asyncio.run_coroutine_threadsafe(self.close_browsers(), self.loop)
         pending = [lambda: not browsers.done()]
 
-        text = self.log_text.get('1.0', 'end').rstrip()
-        if text and config.is_online():
-            auction_id = get_auction_id(self.management_lot_link.get()) or 'unknown'
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'autobid_{auction_id}_{timestamp}.log'
+        payload = self.log_upload_payload()
+        if payload and config.is_online():
+            text, filename = payload
             self.show_message('正在上传日志，传完自动关闭…')
 
             def worker():

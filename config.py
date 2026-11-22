@@ -29,6 +29,34 @@ def is_online():
     return os.getenv("IS_ONLINE", "FALSE").upper() == "TRUE"
 
 
+# Tuning the backend can change without a build. Each value here is what the
+# client does when the backend says nothing about that key.
+DEFAULTS = {
+    "log_round_summary": True,   # One line per bidding round: what was read, what was done
+    "log_upload_minutes": 30,    # Upload the log box this often while running; 0 = never
+    "log_upload_lot_step": 500,  # Also upload each time the closing lot passes a multiple; 0 = never
+    "round_seconds": 90,         # Length of one infinite-bid round
+    "round_lot_cap": 14,         # Most lots one round bids on
+    "collect_pages": 1,          # Manager lot-stats pages (100 lots each) read per round
+}
+
+
+def get(key):
+    """The backend's value for `key`, else the client default.
+
+    A value of the wrong type (a typo in the config document) falls back to the
+    default instead of breaking a round.
+    """
+    default = DEFAULTS[key]
+    value = (_remote or {}).get(key, default)
+    if isinstance(default, bool):
+        return value if isinstance(value, bool) else default
+    try:
+        return type(default)(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def start_background_refresh():
     """Poll the backend on a daemon thread.
 

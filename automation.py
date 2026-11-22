@@ -12,8 +12,9 @@ import traceback
 import random
 from playwright.async_api import Page, Error as PlaywrightError
 import time
+import config
 
-    
+
 
 class Automation:
 
@@ -41,6 +42,7 @@ class Automation:
         # What the bot already bid on each lot of this auction:
         # lot -> {'price': amount placed (None if no step fit), 'target': ceiling it bid against}.
         self.placed_bids = {}
+        self.collected_lots = []    # Lot numbers the last collection read
         self.show_log = show_log
         self.show_message = show_message
         self.update_block_list = update_block_list
@@ -232,21 +234,26 @@ class Automation:
         # await page.select_option('#sortOrder', value="5")
 
         valid_lot_count = 0
-        
-        rows_data = await page.evaluate("""
-            () => {
-                const rows = Array.from(document.querySelectorAll('table#lot-list tbody tr'));
-                const valid_rows = rows.filter(tr => tr.querySelector('.lot-bid-max').innerText != '0.00');
-                return rows.map(tr => ({
-                    maxBid: parseFloat(tr.querySelector('.lot-bid-max').innerText.replace(',', '')),
-                    highBid: parseFloat(tr.querySelector('.lot-high-bid').innerText.split(' ')[0].replace(',', '')),
-                    lotNumber: tr.querySelector('.lot-number-lead.lot-link').innerText.split(' ')[0],
-                    bidder: tr.querySelector('.name-expand')?.innerText.split(' ')[0] || '-1',
-                }));
-            }
-        """)
-            
-        
+
+        rows_data = []
+        pages = max(1, config.get('collect_pages'))
+        for page_number in range(pages):
+            rows_data += await page.evaluate("""
+                () => {
+                    const rows = Array.from(document.querySelectorAll('table#lot-list tbody tr'));
+                    return rows.map(tr => ({
+                        maxBid: parseFloat(tr.querySelector('.lot-bid-max').innerText.replace(',', '')),
+                        highBid: parseFloat(tr.querySelector('.lot-high-bid').innerText.split(' ')[0].replace(',', '')),
+                        lotNumber: tr.querySelector('.lot-number-lead.lot-link').innerText.split(' ')[0],
+                        bidder: tr.querySelector('.name-expand')?.innerText.split(' ')[0] || '-1',
+                    }));
+                }
+            """)
+            if page_number + 1 < pages and not await self.next_lot_page(page):
+                break
+        # What this round read, for the round summary and the log uploads.
+        self.collected_lots = [row['lotNumber'] for row in rows_data]
+
         # Process the data in Python
         for row in rows_data:
             lot = row['lotNumber']
@@ -270,7 +277,36 @@ class Automation:
             valid_lot_count += 1
         self.show_log(f'已收集 {valid_lot_count} 个 lot 的出价信息')
         return 'lot 信息收集完成'
-        
+
+    async def next_lot_page(self, page):
+        """Go to the next lot-stats page; False when there is none.
+
+        The pager's last item reads "Next" (the same control the old page-by-page
+        collection clicked).
+        """
+        next_link = page.locator('table#lot-list thead tr th ul li').last.locator('span', has_text='Next')
+        if await next_link.count() == 0:
+            return False
+        await next_link.first.click()
+        await page.wait_for_load_state('networkidle')
+        return True
+
+    def round_summary(self, bid_count, success_count, already_bid_count, at_price_count, not_reached_count):
+        """One line saying what a round read and what it did with it."""
+        numbers = [int(lot) for lot in self.collected_lots if str(lot).isdigit()]
+        span = f'（{min(numbers)}–{max(numbers)}）' if numbers else ''
+        line = (f'本轮：读到 {len(self.collected_lots)} 个 lot{span}，'
+                f'出价 {bid_count} 个（成功 {success_count}），'
+                f'已出到上限 {already_bid_count} 个，当前价已到上限 {at_price_count} 个')
+        if not_reached_count:
+            line += f'，时间/名额用完没轮到 {not_reached_count} 个'
+        return line
+
+    def closing_lot(self):
+        """The lowest lot number read this round: roughly where the auction is closing. None if none."""
+        numbers = [int(lot) for lot in self.collected_lots if str(lot).isdigit()]
+        return min(numbers) if numbers else None
+
         # break_flag = False
         # Process the rows in batches
         # while True:
@@ -347,16 +383,23 @@ class Automation:
         
         # bid limit and bid count
         # as per item cost around 6 seconds, one round should be finished in 90 seconds
-        # so totally 14*6=84 seconds fo bid, and 6 seconds for get lot info 
-        limit = 14
+        # so totally 14*6=84 seconds fo bid, and 6 seconds for get lot info
+        # Both come from the backend config (defaults 14 lots / 90 s).
+        limit = max(1, config.get('round_lot_cap'))
+        round_seconds = max(10, config.get('round_seconds'))
         i = 0
         already_bid_count = 0
+        success_count = 0
+        at_price_count = 0      # Read this round, but the price already reached the target
+        collected = set(self.collected_lots)
+        visited = set()
         start = datetime.now()
         for lot in self.lot_dict:
             diff = (datetime.now() - start).total_seconds()
-            if not self.is_running or (mode == 2 and (i >= limit or diff > 90)):
+            if not self.is_running or (mode == 2 and (i >= limit or diff > round_seconds)):
                 break
-            
+            visited.add(lot)
+
             bid_info = self.lot_dict[lot]
             
             if pd.isna(bid_info.get("max_bid_price")):
@@ -379,6 +422,7 @@ class Automation:
                             self.bid_cust_win_count += 1
                             self.bid_to_cust_max += (bid_info['max_bid_price'] - bid_info.get('high_bid', 0))
                     else:
+                        at_price_count += lot in collected
                         continue
                 # If no msrp price, bid to max_bid_price
                 elif bid_info['msrp_price'] >= 100 or bid_info['msrp_price'] == 0:
@@ -409,11 +453,13 @@ class Automation:
                                 self.bid_bot_win_count += 1
                                 self.bid_to_bot_max += (final_bid_price - bid_info.get('high_bid', 0))
                     else:
+                        at_price_count += lot in collected
                         continue
                 else:
                     self.show_log(f'lot {lot}：没有 msrp，跳过')
                     continue
                 i += 1
+                success_count += status == 'success'
                 await asyncio.sleep(random.random() + 1)  # Add a random delay 1-2s to simulate human behavior
             except Exception:
                 self.show_log(f'lot {lot}：出价出错，跳过')
@@ -441,8 +487,9 @@ class Automation:
             except Exception:
                 self.show_log('上报出价日志失败')
                 self.show_log(traceback.format_exc())
-        if already_bid_count:
-            self.show_log(f'已出到上限、上限没涨的 lot {already_bid_count} 个，本轮跳过')
+        if config.get('log_round_summary'):
+            self.show_log(self.round_summary(i, success_count, already_bid_count,
+                                             at_price_count, len(collected - visited)))
         try:
             if(len(item_log) != 0):
                     data = {
